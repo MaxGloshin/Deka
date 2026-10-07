@@ -103,6 +103,10 @@ body{
 .np-title{font-size:clamp(21px,6.6vw,29px);font-weight:700;line-height:1.08;letter-spacing:.02em;text-transform:uppercase;text-shadow:var(--halo);
   text-wrap:balance;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .np-err{font-family:var(--f-mono);font-size:10.5px;line-height:1.45;letter-spacing:.02em;color:var(--glow);overflow-wrap:anywhere;text-transform:none}
+.np-actions{display:flex;flex-wrap:wrap;gap:8px;flex:0 0 auto}
+.np-actions .vbtn{display:inline-flex;align-items:center;gap:6px;text-decoration:none;touch-action:manipulation;padding:8px 11px}
+.vbtn.on{background:rgba(116,242,217,.16);border-color:var(--glow);text-shadow:var(--halo)}
+.vbtn.off{opacity:.45;pointer-events:none}
 .np-bar{display:grid;grid-template-columns:repeat(32,1fr);gap:2px;height:10px;flex:0 0 auto}
 .np-bar i{background:var(--ghost)}
 .np-bar i.on{background:var(--glow);box-shadow:0 0 6px rgba(116,242,217,.6)}
@@ -257,6 +261,7 @@ const fmt = s => {
   return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
 };
 function shuffleArr(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+const artistOf = t => { const seg = String((t && t.path) || '').split('/').filter(Boolean); return seg.length > 1 ? seg[0] : ((t && t.folder) || ''); };
 function parentName(path) { const p = String(path || '').split('/').filter(Boolean); return p.length > 1 ? p[p.length - 2] : ''; }
 
 /* "104_SALUKI_-_DISKO_BOL_72932686.mp3" -> {artist:"SALUKI", title:"DISKO BOL"} */
@@ -408,34 +413,35 @@ const blobs = new Set();
 
 function linkFresh(t) { return !!t.file && Date.now() - t.fileAt < LINK_TTL; }
 function getLink(t) { return linkFresh(t) ? t.file : freshLink(t); }
-/* Downloads the whole track into memory, reporting progress; play and prefetch share one download. */
+/* Fetches a whole track as a Blob, reporting progress 0..1. */
+async function fetchTrackBlob(t, onProgress) {
+  const href = await getLink(t);
+  const r = await fetch(href, { referrerPolicy: 'no-referrer' });
+  if (!r.ok) { const e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
+  const total = +r.headers.get('content-length') || t.size || 0;
+  const type = t.mime || 'audio/mpeg';
+  if (r.body && r.body.getReader && total) {
+    const reader = r.body.getReader(), parts = [];
+    let got = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      parts.push(value); got += value.length;
+      onProgress(Math.min(1, got / total));
+    }
+    return new Blob(parts, { type });
+  }
+  const b = await r.blob();
+  return /^audio\//.test(b.type) ? b : new Blob([b], { type });
+}
+/* Playback copy in memory (the "ЦЕЛИКОМ" method); play and prefetch share one download. */
 function loadBlob(t) {
   if (t.blobUrl) return Promise.resolve(t.blobUrl);
   if (t.blobP) return t.blobP;
   const p = (async () => {
     t.progress = 0;
-    const href = await getLink(t);
-    const r = await fetch(href, { referrerPolicy: 'no-referrer' });
-    if (!r.ok) { const e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
-    const total = +r.headers.get('content-length') || t.size || 0;
-    const type = t.mime || 'audio/mpeg';
-    let b;
-    if (r.body && r.body.getReader && total) {
-      const reader = r.body.getReader(), parts = [];
-      let got = 0;
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        parts.push(value); got += value.length;
-        t.progress = Math.min(1, got / total);
-        if (t === current) updateNow();
-      }
-      b = new Blob(parts, { type });
-    } else {
-      b = await r.blob();
-      if (!/^audio\//.test(b.type)) b = new Blob([b], { type });
-    }
-    t.progress = 1;
+    const b = await fetchTrackBlob(t, pr => { t.progress = pr; if (t === current) updateNow(); });
+    t.progress = 1; t.blobObj = b;
     t.blobUrl = URL.createObjectURL(b); blobs.add(t);
     return t.blobUrl;
   })();
@@ -444,8 +450,84 @@ function loadBlob(t) {
   return p;
 }
 function freeBlobs(keep) {
-  blobs.forEach(t => { if (!keep.includes(t)) { URL.revokeObjectURL(t.blobUrl); t.blobUrl = null; blobs.delete(t); } });
+  blobs.forEach(t => { if (!keep.includes(t)) { URL.revokeObjectURL(t.blobUrl); t.blobUrl = null; t.blobObj = null; blobs.delete(t); } });
 }
+
+/* ---------- player memory: tracks saved inside the player (IndexedDB) to play without internet ---------- */
+const idb = (() => {
+  let dbp = null;
+  const open = () => dbp || (dbp = new Promise((res, rej) => {
+    if (!window.indexedDB) { rej(new Error('нет хранилища')); return; }
+    const r = indexedDB.open('deka', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('tracks');
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  }));
+  const tx = (m, fn) => open().then(db => new Promise((res, rej) => {
+    const t = db.transaction('tracks', m), req = fn(t.objectStore('tracks'));
+    t.oncomplete = () => res(req.result);
+    t.onerror = t.onabort = () => rej(t.error);
+  }));
+  return {
+    get: k => tx('readonly', st => st.get(k)),
+    put: (k, v) => tx('readwrite', st => st.put(v, k)),
+    del: k => tx('readwrite', st => st.delete(k)),
+    keys: () => tx('readonly', st => st.getAllKeys())
+  };
+})();
+let savedMeta = store.get('saved', {}) || {}, savedVer = 0, clearArm = false;
+const offKey = t => settings.key + '|' + t.path;
+const isSaved = t => !!t && !!savedMeta[offKey(t)];
+const saveMeta = () => { store.set('saved', savedMeta); savedVer++; };
+function savedEntries() { const pre = settings.key + '|'; return Object.keys(savedMeta).filter(k => k.startsWith(pre)).map(k => savedMeta[k]); }
+function savedTracks() {
+  return savedEntries().sort((a, b) => b.at - a.at)
+    .map(f => ({ name: f.n, path: f.p, dir: false, audio: true, file: null, fileAt: 0, folder: f.f, mime: f.m, size: f.s }));
+}
+function savedStats() { const e = savedEntries(); return { n: e.length, mb: Math.round(e.reduce((a, f) => a + (f.s || 0), 0) / 1048576) }; }
+
+const dlJobs = [];
+let dlBusy = null, dlOk = 0, dlBad = 0, dlErr = '';
+const dlState = t => isSaved(t) ? 'saved' : dlBusy === t ? 'busy' : dlJobs.includes(t) ? 'queued' : 'none';
+function queueDownload(list) {
+  let added = 0;
+  list.forEach(t => { if (dlState(t) === 'none') { dlJobs.push(t); added++; } });
+  if (!added) { flash('УЖЕ В ПАМЯТИ'); return; }
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) {}
+  runDownloads(); dlRefresh();
+}
+async function runDownloads() {
+  if (dlBusy || !dlJobs.length) return;
+  const t = dlBusy = dlJobs.shift();
+  t.dlProgress = 0; dlRefresh();
+  try {
+    const b = t.blobObj || await fetchTrackBlob(t, pr => { t.dlProgress = pr; dlRefresh(); });
+    await idb.put(offKey(t), b);
+    savedMeta[offKey(t)] = { p: t.path, n: t.name, f: t.folder || '', m: t.mime || '', s: b.size, at: Date.now() };
+    saveMeta(); dlOk++;
+  } catch (e) {
+    dlBad++; dlErr = e && e.name === 'QuotaExceededError' ? 'НЕТ МЕСТА' : errLabel(e);
+  }
+  dlBusy = null; t.dlProgress = null;
+  if (dlJobs.length) { runDownloads(); return; }
+  flash(dlBad ? 'НЕ СКАЧАЛОСЬ ' + dlBad + ' — ' + dlErr : (dlOk > 1 ? '✓ В ПАМЯТИ +' + dlOk + ' ТРЕКОВ' : '✓ ТРЕК В ПАМЯТИ ПЛЕЕРА'));
+  dlOk = dlBad = 0;
+  dlRefresh();
+  if (stack.length && cur().kind === 'list') render();
+}
+function dlRefresh() { renderFoot(); updateDl(); }
+async function removeSaved(t) { try { await idb.del(offKey(t)); } catch (e) {} delete savedMeta[offKey(t)]; saveMeta(); }
+async function clearSaved() {
+  const pre = settings.key + '|';
+  for (const k of Object.keys(savedMeta)) if (k.startsWith(pre)) { try { await idb.del(k); } catch (e) {} delete savedMeta[k]; }
+  saveMeta();
+}
+// forget entries whose audio the browser no longer holds
+idb.keys().then(keys => {
+  const ks = new Set(keys); let changed = false;
+  for (const k of Object.keys(savedMeta)) if (!ks.has(k)) { delete savedMeta[k]; changed = true; }
+  if (changed) { saveMeta(); if (stack.length) render(); }
+}).catch(() => {});
 function srcFor(t, m) {   // a string when the source is ready now, otherwise a promise
   if (m === 'blob') return t.blobUrl || loadBlob(t);
   const fix = h => m === 'inline' ? h.replace('disposition=attachment', 'disposition=inline') : h;
@@ -455,7 +537,24 @@ function srcFor(t, m) {   // a string when the source is ready now, otherwise a 
 const errLabel = e => e && e.status ? 'HTTP ' + e.status : ((e && (e.message || e.name)) || 'ошибка');
 
 /* No timeouts: a slow download just keeps loading. Only a real error moves on to the next method. */
+let offUrl = null;
 function attemptPlay(t) {
+  if (!isSaved(t)) { attemptCascade(t); return; }
+  const id = ++attemptId;
+  pendingFail = null;
+  idb.get(offKey(t)).then(b => {
+    if (id !== attemptId) return;
+    if (!b) { delete savedMeta[offKey(t)]; saveMeta(); attemptCascade(t); return; }
+    if (offUrl) URL.revokeObjectURL(offUrl);
+    offUrl = URL.createObjectURL(b);
+    t.mode = 'saved';
+    pendingFail = () => attemptCascade(t);
+    audio.src = offUrl;
+    const p = audio.play();
+    if (p) p.catch(err => { if (err && err.name === 'NotAllowedError') flash('НАЖМИ ▸ ЧТОБЫ ИГРАТЬ'); });
+  }, () => { if (id === attemptId) attemptCascade(t); });
+}
+function attemptCascade(t) {
   const id = ++attemptId;
   const order = MODES.includes(mode) ? [mode].concat(MODES.filter(m => m !== mode)) : MODES.slice();
   const errors = [];
@@ -492,7 +591,7 @@ function playAt(i) {
 }
 function prefetchNext() {
   const n = queue[qi + 1] || (settings.repeat === 'all' ? queue[0] : null);
-  if (!n || n === current) return;
+  if (!n || n === current || isSaved(n)) return;
   if (mode === 'blob') { if (!n.blobUrl) loadBlob(n).catch(() => {}); }
   else if (!(n.file && Date.now() - n.fileAt < LINK_TTL / 2)) freshLink(n).catch(() => {});
 }
@@ -551,7 +650,8 @@ audio.addEventListener('playing', () => {
   if (!current) return;
   clearTimeout(retryTimer);
   if (current.err || current.status) { current.err = ''; current.status = ''; render(); }
-  if (current.mode && mode !== current.mode) { mode = current.mode; store.set('mode', mode); }
+  if (MODES.includes(current.mode) && mode !== current.mode) { mode = current.mode; store.set('mode', mode); }
+  applyMediaHandlers();
   prefetchNext();
 });
 ['play', 'pause', 'playing'].forEach(ev => audio.addEventListener(ev, () => {
@@ -570,7 +670,7 @@ audio.addEventListener('timeupdate', () => {
 /* lock screen / control centre */
 function updateMeta() {
   if (!('mediaSession' in navigator) || !current) return;
-  const p = parseName(current.name, current.folder);
+  const p = parseName(current.name, artistOf(current));
   try {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: p.title, artist: p.artist, album: current.folder || 'Дека',
@@ -584,15 +684,20 @@ function updatePosition() {
   if (!isFinite(d) || d <= 0) return;
   try { navigator.mediaSession.setPositionState({ duration: d, playbackRate: audio.playbackRate || 1, position: Math.min(audio.currentTime, d) }); } catch (e) {}
 }
-if ('mediaSession' in navigator) {
+// iOS shows ±10 s unless seek buttons are explicitly cleared and track buttons set; it can reset them when a new source starts.
+function applyMediaHandlers() {
+  if (!('mediaSession' in navigator)) return;
   const ms = navigator.mediaSession;
   const h = (a, fn) => { try { ms.setActionHandler(a, fn); } catch (e) {} };
+  h('seekbackward', null);
+  h('seekforward', null);
   h('play', () => audio.play().catch(() => {}));
   h('pause', () => audio.pause());
-  h('previoustrack', prev);
+  h('previoustrack', () => { if (queue.length) playAt(qi - 1); });
   h('nexttrack', next);
   h('seekto', d => { if (d && isFinite(d.seekTime)) audio.currentTime = d.seekTime; });
 }
+applyMediaHandlers();
 
 /* ---------- display ---------- */
 let stack = [];
@@ -628,6 +733,7 @@ function mainView() {
       const it = [
         { label: 'Исполнители', hint: '›', go: () => push(folderView('/', 'Исполнители')) },
         { label: 'Избранное', hint: favList().length ? String(favList().length) : '›', go: () => push(favView()) },
+        { label: 'Скачанные', hint: savedStats().n ? String(savedStats().n) : '›', go: () => push(savedView()) },
         { label: 'Все исполнители вперемешку', hint: '', go: () => shuffleAll('/', 'Все исполнители') }
       ];
       if (current) it.push({ label: 'Сейчас играет', hint: '›', go: () => push(nowView()) });
@@ -651,7 +757,7 @@ function folderView(path, title) {
       it.push({ label: 'Вперемешку', hint: '', go: () => startQueue(files, 0, true, title) });
     }
     dirs.forEach(d => it.push({ label: d.name, hint: '›', go: () => push(folderView(d.path, d.name)) }));
-    files.forEach((f, i) => it.push({ label: parseName(f.name, f.folder).title, track: f, hint: '', go: () => startQueue(files, i, false, title) }));
+    files.forEach((f, i) => it.push({ label: parseName(f.name, artistOf(f)).title, track: f, hint: '', go: () => startQueue(files, i, false, title) }));
     if (!it.length) { v.error = Object.assign(new Error('ПАПКА ПУСТАЯ'), { custom: true }); return []; }
     return it;
   };
@@ -680,6 +786,21 @@ async function shuffleAll(path, title) {
   }
 }
 function nowView() { return { kind: 'now', title: 'СЕЙЧАС ИГРАЕТ' }; }
+function savedView() {
+  const v = { kind: 'list', title: 'СКАЧАННЫЕ', ver: -1, tracks: [] };
+  v.build = () => {
+    if (v.ver !== savedVer) { v.tracks = savedTracks(); v.ver = savedVer; }
+    const tr = v.tracks;
+    if (!tr.length) return [{ label: 'Пока пусто', hint: '', go: () => flash('ЖМИ «СКАЧАТЬ» НА ЭКРАНЕ ТРЕКА') }];
+    const it = [
+      { label: 'Слушать все', hint: String(tr.length), go: () => startQueue(tr, 0, false, 'Скачанные') },
+      { label: 'Вперемешку', hint: '', go: () => startQueue(tr, 0, true, 'Скачанные') }
+    ];
+    tr.forEach((f, i) => { const p = parseName(f.name, artistOf(f)); it.push({ label: p.artist + ' — ' + p.title, track: f, hint: '', go: () => startQueue(tr, i, false, 'Скачанные') }); });
+    return it;
+  };
+  return v;
+}
 function favView() {
   const v = { kind: 'list', title: 'ИЗБРАННОЕ', ver: -1, tracks: [] };
   v.build = () => {
@@ -690,7 +811,9 @@ function favView() {
       { label: 'Слушать все', hint: String(tr.length), go: () => startQueue(tr, 0, false, 'Избранное') },
       { label: 'Вперемешку', hint: '', go: () => startQueue(tr, 0, true, 'Избранное') }
     ];
-    tr.forEach((f, i) => { const p = parseName(f.name, f.folder); it.push({ label: p.artist + ' — ' + p.title, track: f, hint: HEART, go: () => startQueue(tr, i, false, 'Избранное') }); });
+    const missing = tr.filter(t => !isSaved(t)).length;
+    if (missing) it.push({ label: 'Скачать всё в память', hint: String(missing), go: () => queueDownload(tr) });
+    tr.forEach((f, i) => { const p = parseName(f.name, artistOf(f)); it.push({ label: p.artist + ' — ' + p.title, track: f, hint: '', go: () => startQueue(tr, i, false, 'Избранное') }); });
     return it;
   };
   return v;
@@ -706,8 +829,13 @@ function settingsView() {
       { label: 'Повтор', hint: rep[settings.repeat], go: () => { settings.repeat = { all: 'one', one: 'off', off: 'all' }[settings.repeat]; store.set('repeat', settings.repeat); setAnn(); render(); } },
       { label: 'Папка на Диске', hint: '›', go: () => push(editView()) },
       { label: 'Способ загрузки', hint: MODES.includes(mode) ? MODE_NAMES[mode] : 'АВТО', go: () => { mode = null; store.set('mode', null); flash('ПОДБЕРУ ЗАНОВО'); render(); } },
+      { label: 'Память плеера', hint: savedStats().n + ' ТР · ' + savedStats().mb + ' МБ', go: () => push(savedView()) },
+      { label: clearArm ? 'Точно удалить всё?' : 'Очистить память', hint: '', go: () => {
+        if (!clearArm) { clearArm = true; render(); setTimeout(() => { clearArm = false; if (cur().title === 'НАСТРОЙКИ') render(); }, 3000); return; }
+        clearArm = false; clearSaved().then(() => { flash('ПАМЯТЬ ОЧИЩЕНА'); render(); });
+      } },
       { label: 'Обновить списки', hint: '', go: () => { cache.clear(); flash('СПИСКИ ОБНОВЯТСЯ'); listFolder('/').catch(() => {}); } },
-      { label: 'Версия', hint: 'V6', go: () => flash('ДЕКА ДК-31 · ВЕРСИЯ 6') }
+      { label: 'Версия', hint: 'V9', go: () => flash('ДЕКА ДК-31 · ВЕРСИЯ 9') }
     ]
   };
 }
@@ -751,7 +879,7 @@ function render() {
     const playing = it.track && current && it.track.path === current.path;
     html += '<div class="row' + (on ? ' on' : '') + '" data-i="' + i + '"><span class="car">' + (on ? '▸' : '') +
       '</span><span class="lbl"><span class="txt">' + esc(it.label) + '</span></span><span class="hint">' +
-      (playing ? (audio.paused ? '‖' : '♪') : (!it.hint && it.track && isFav(it.track) ? HEART : esc(it.hint || ''))) + '</span></div>';
+      (playing ? (audio.paused ? '‖' : '♪') : (!it.hint && it.track ? (isFav(it.track) ? HEART : '') + (isSaved(it.track) ? '✓' : '') : esc(it.hint || ''))) + '</span></div>';
   }
   if (items.length > rows) {
     html += '<div class="sb"><i style="top:' + (v.top / items.length * 100) + '%;height:' + (rows / items.length * 100) + '%"></i></div>';
@@ -778,15 +906,42 @@ function renderNow() {
     vbody.innerHTML = '<div class="msg">НЕТ ТРЕКА<small>Выбери исполнителя в меню</small></div>';
     segEls = null; renderFoot(); return;
   }
-  const p = parseName(current.name, current.folder);
+  const p = parseName(current.name, artistOf(current));
   vbody.innerHTML =
     '<div class="np"><div class="np-meta"><span>ТРЕК ' + (qi + 1) + ' / ' + queue.length + '</span><span>' + esc(current.folder || queueName) + '</span></div>' +
     '<div class="np-mid"><div class="np-artist">' + (isFav(current) ? HEART + ' ' : '') + esc(p.artist) + '</div><div class="np-title">' + esc(p.title) + '</div>' +
     (current.err ? '<div class="np-err">НЕ ИГРАЕТ — ' + esc(current.err) + (current.status ? '<br>' + esc(current.status) : '') + '</div>' : '') + '</div>' +
+    '<div class="np-actions"><button type="button" class="vbtn' + (isFav(current) ? ' on' : '') + '" id="npFav">' +
+      (isFav(current) ? HEART + ' В ИЗБРАННОМ' : '♡ В ИЗБРАННОЕ') + '</button>' +
+      '<button type="button" class="vbtn" id="npDl">↓ СКАЧАТЬ</button></div>' +
     '<div class="np-bar">' + '<i></i>'.repeat(SEGS) + '</div>' +
     '<div class="np-time"><span id="npEl">00:00</span><span id="npRem">-00:00</span></div></div>';
   segEls = vbody.querySelectorAll('.np-bar i'); npEl = $('npEl'); npRem = $('npRem');
+  $('npFav').addEventListener('click', e => { e.stopPropagation(); unlock(); favAction(); });
+  $('npDl').addEventListener('click', e => { e.stopPropagation(); unlock(); tick(true); dlButton(); });
+  updateDl();
   updateNow(); renderFoot();
+}
+/* "Скачать" saves the track into the player's own storage; a second tap on "в памяти" offers removal. */
+let delArm = null, delTimer = 0;
+function updateDl() {
+  const b = $('npDl'), t = current;
+  if (!b || !t) return;
+  const st = dlState(t);
+  b.classList.toggle('on', st === 'saved');
+  b.textContent = st === 'saved' ? (delArm === t ? '✕ УДАЛИТЬ ИЗ ПАМЯТИ?' : '✓ В ПАМЯТИ')
+    : st === 'busy' ? '↓ ' + Math.round((t.dlProgress || 0) * 100) + '%'
+    : st === 'queued' ? '↓ В ОЧЕРЕДИ' : '↓ СКАЧАТЬ';
+}
+function dlButton() {
+  const t = current;
+  if (!t) return;
+  const st = dlState(t);
+  if (st === 'none') { queueDownload([t]); return; }
+  if (st !== 'saved') return;
+  clearTimeout(delTimer);
+  if (delArm === t) { delArm = null; removeSaved(t).then(() => { flash('УДАЛЕНО ИЗ ПАМЯТИ'); render(); }); }
+  else { delArm = t; delTimer = setTimeout(() => { delArm = null; updateDl(); }, 3000); updateDl(); }
 }
 function updateNow() {
   if (cur().kind !== 'now' || !current || !segEls) return;
@@ -821,13 +976,17 @@ function renderEdit() {
 function renderFoot() {
   if (flashMsg) { vfoot.className = 'vfd-foot flash'; vfoot.textContent = flashMsg; return; }
   vfoot.className = 'vfd-foot';
+  if (dlBusy) {
+    vfoot.textContent = '↓ В ПАМЯТЬ ' + Math.round((dlBusy.dlProgress || 0) * 100) + '%' + (dlJobs.length ? ' · ЕЩЁ ' + dlJobs.length : '');
+    return;
+  }
   const v = cur();
   if (v && v.kind === 'now') {
     vfoot.textContent = current ? 'ЦЕНТР — ПАУЗА · ДЕРЖИ — В ИЗБРАННОЕ' : '';
     return;
   }
   if (!current) { vfoot.textContent = 'КРУТИ КОЛЕСО · ЖМИ ЦЕНТР'; return; }
-  const p = parseName(current.name, current.folder);
+  const p = parseName(current.name, artistOf(current));
   vfoot.innerHTML = '<span>' + (audio.paused ? '‖' : '♪') + '</span><span class="ft-txt">' + esc(p.artist + ' — ' + p.title) +
     '</span><span class="ft-time">' + fmt(audio.currentTime) + '</span>';
 }
@@ -919,17 +1078,25 @@ function favAction() {
   setAnn(); render();
 }
 // short press = select, hold ~0.5 s until the ring lights up = favourite
-let armTimer = 0, armed = false;
-const disarm = () => { clearTimeout(armTimer); cap.classList.remove('armed'); };
+// iOS often swallows the click after a long press, so the favourite is toggled by the timer itself.
+let armTimer = 0, heldFired = false;
 cap.addEventListener('pointerdown', () => {
-  armed = false; disarm();
-  armTimer = setTimeout(() => { armed = true; cap.classList.add('armed'); }, 500);
+  heldFired = false; clearTimeout(armTimer);
+  armTimer = setTimeout(() => {
+    heldFired = true;
+    cap.classList.add('armed');
+    favAction();
+    setTimeout(() => cap.classList.remove('armed'), 500);
+  }, 550);
 });
-cap.addEventListener('pointercancel', () => { armed = false; disarm(); });
+['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => cap.addEventListener(ev, () => {
+  clearTimeout(armTimer);
+  if (ev === 'pointerup' && heldFired && settings.haptics) buzz();   // haptic inside the gesture
+}));
 cap.addEventListener('contextmenu', e => e.preventDefault());
 cap.addEventListener('click', () => {
-  unlock(); disarm();
-  if (armed) { armed = false; favAction(); return; }
+  unlock();
+  if (heldFired) { heldFired = false; return; }
   tick(true); select();
 });
 $('kMenu').addEventListener('click', () => { unlock(); tick(true); back(); });
