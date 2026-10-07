@@ -96,6 +96,7 @@ body{
 /* now playing */
 .np{display:flex;flex-direction:column;height:100%;gap:8px;padding-top:2px}
 .np-meta{display:flex;justify-content:space-between;gap:10px;font-family:var(--f-mono);font-size:11px;letter-spacing:.12em;color:var(--dim)}
+.np-meta span:first-child{flex:0 0 auto;white-space:nowrap}
 .np-meta span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:uppercase}
 .np-mid{margin-block:auto;display:flex;flex-direction:column;gap:6px;min-height:0}
 .np-artist{font-size:15px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -157,6 +158,7 @@ body{
   color:var(--silk-dim);font:500 11px/1 var(--f-mono);letter-spacing:.2em;padding:0 0 0 .2em;
   background:radial-gradient(circle at 50% 35%,#3c4148,#1c1f23 70%);
   box-shadow:0 0 0 2px rgba(0,0,0,.55),0 0 0 4px rgba(255,255,255,.14),inset 0 2px 3px rgba(255,255,255,.08),inset 0 -3px 6px rgba(0,0,0,.6)}
+.cap.armed{box-shadow:0 0 0 2px rgba(0,0,0,.55),0 0 0 4px var(--glow),0 0 22px rgba(116,242,217,.6),inset 0 4px 9px rgba(0,0,0,.75)}
 .cap:active{transform:scale(.985);box-shadow:0 0 0 2px rgba(0,0,0,.55),0 0 0 4px rgba(255,255,255,.1),inset 0 4px 9px rgba(0,0,0,.75)}
 
 @media (prefers-reduced-motion:reduce){.txt.mq,.blink,.np-time .scrub{animation:none}}
@@ -175,7 +177,7 @@ body{
 
   <section class="vfd" aria-live="polite">
     <div class="ann" id="ann" aria-hidden="true">
-      <span data-a="play">ИГРА</span><span data-a="pause">ПАУЗА</span><span data-a="rpt">ПОВТ</span><span data-a="rpt1">ПОВТ·1</span><span data-a="shuf">СЛУЧ</span><span data-a="load">ЗАГР</span>
+      <span data-a="play">ИГРА</span><span data-a="pause">ПАУЗА</span><span data-a="rpt">ПОВТ</span><span data-a="rpt1">ПОВТ·1</span><span data-a="shuf">СЛУЧ</span><span data-a="load">ЗАГР</span><span data-a="fav">ИЗБР</span>
     </div>
     <div class="vfd-title" id="vtitle">ГЛАВНОЕ</div>
     <div class="vfd-body" id="vbody"></div>
@@ -227,6 +229,22 @@ const settings = {
   key: store.get('key', DEFAULT_KEY)
 };
 
+/* ---------- favourites: kept in this browser only, so every listener has their own ---------- */
+const HEART = '♥︎';
+let favAll = store.get('favs', {}), favVer = 0;
+const favList = () => (favAll && favAll[settings.key]) || [];
+const isFav = t => !!t && favList().some(f => f.p === t.path);
+function toggleFav(t) {
+  const list = favList().slice();
+  const i = list.findIndex(f => f.p === t.path);
+  if (i >= 0) list.splice(i, 1);
+  else list.unshift({ p: t.path, n: t.name, f: t.folder || '', m: t.mime || '', s: t.size || 0 });
+  favAll = Object.assign({}, favAll, { [settings.key]: list });
+  store.set('favs', favAll); favVer++;
+  return i < 0;
+}
+const favTracks = () => favList().map(f => ({ name: f.n, path: f.p, dir: false, audio: true, file: null, fileAt: 0, folder: f.f, mime: f.m, size: f.s }));
+
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
 const audio = $('audio'), vtitle = $('vtitle'), vbody = $('vbody'), vfoot = $('vfoot'),
@@ -266,12 +284,15 @@ function ensureAudioCtx() {
   } catch (e) { actx = null; }
 }
 // iOS Safari has no navigator.vibrate; toggling a native switch gives a system haptic tick (iOS 18+).
+// The switch must actually be rendered (display:none gives no haptic), so it sits invisible behind the page.
 const hapLabel = (() => {
-  const l = document.createElement('label');
-  l.setAttribute('aria-hidden', 'true');
-  l.style.display = 'none';
   const i = document.createElement('input');
-  i.type = 'checkbox'; i.setAttribute('switch', ''); i.tabIndex = -1;
+  i.type = 'checkbox'; i.setAttribute('switch', ''); i.id = 'hapSwitch'; i.tabIndex = -1;
+  const l = document.createElement('label');
+  l.htmlFor = 'hapSwitch';
+  l.setAttribute('aria-hidden', 'true');
+  l.style.cssText = 'position:fixed;left:0;bottom:0;opacity:0;pointer-events:none;z-index:-1;';
+  i.style.cssText = 'margin:0;';
   l.appendChild(i); document.body.appendChild(l);
   return l;
 })();
@@ -323,7 +344,7 @@ async function listFolder(path) {
   const out = raw.map(it => ({
     name: it.name, path: it.path, dir: it.type === 'dir',
     audio: it.media_type === 'audio' || /\.(mp3|m4a|aac|wav|flac|alac|ogg|opus)$/i.test(it.name || ''),
-    file: it.file || null, fileAt: now, folder: parentName(it.path), mime: it.mime_type || ''
+    file: it.file || null, fileAt: now, folder: parentName(it.path), mime: it.mime_type || '', size: it.size || 0
   })).filter(x => x.dir || x.audio);
   cache.set(ck, { t: now, items: out });
   return out;
@@ -333,8 +354,8 @@ async function freshLink(t) {
   t.file = j.href; t.fileAt = Date.now();
   return j.href;
 }
-async function collectAll(onProgress) {
-  const root = await listFolder('/');
+async function collectAll(onProgress, rootPath) {
+  const root = await listFolder(rootPath || '/');
   let files = root.filter(x => !x.dir);
   const todo = root.filter(x => x.dir);
   let done = 0, total = todo.length;
@@ -381,20 +402,46 @@ function unlock() {
 const MODES = ['direct', 'blob', 'inline'];
 const MODE_NAMES = { direct: 'ПОТОК', blob: 'ЦЕЛИКОМ', inline: 'ПОТОК-2' };
 let mode = store.get('mode', null);
-let attemptId = 0, pendingFail = null, failStreak = 0;
+let attemptId = 0, pendingFail = null, retryTimer = 0;
+const RETRY_DELAYS = [3000, 8000];
 const blobs = new Set();
 
 function linkFresh(t) { return !!t.file && Date.now() - t.fileAt < LINK_TTL; }
 function getLink(t) { return linkFresh(t) ? t.file : freshLink(t); }
-async function loadBlob(t) {
-  if (t.blobUrl) return t.blobUrl;
-  const href = await getLink(t);
-  const r = await fetch(href, { referrerPolicy: 'no-referrer' });
-  if (!r.ok) { const e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
-  let b = await r.blob();
-  if (!/^audio\//.test(b.type)) b = new Blob([b], { type: t.mime || 'audio/mpeg' });
-  t.blobUrl = URL.createObjectURL(b); blobs.add(t);
-  return t.blobUrl;
+/* Downloads the whole track into memory, reporting progress; play and prefetch share one download. */
+function loadBlob(t) {
+  if (t.blobUrl) return Promise.resolve(t.blobUrl);
+  if (t.blobP) return t.blobP;
+  const p = (async () => {
+    t.progress = 0;
+    const href = await getLink(t);
+    const r = await fetch(href, { referrerPolicy: 'no-referrer' });
+    if (!r.ok) { const e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
+    const total = +r.headers.get('content-length') || t.size || 0;
+    const type = t.mime || 'audio/mpeg';
+    let b;
+    if (r.body && r.body.getReader && total) {
+      const reader = r.body.getReader(), parts = [];
+      let got = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        parts.push(value); got += value.length;
+        t.progress = Math.min(1, got / total);
+        if (t === current) updateNow();
+      }
+      b = new Blob(parts, { type });
+    } else {
+      b = await r.blob();
+      if (!/^audio\//.test(b.type)) b = new Blob([b], { type });
+    }
+    t.progress = 1;
+    t.blobUrl = URL.createObjectURL(b); blobs.add(t);
+    return t.blobUrl;
+  })();
+  t.blobP = p;
+  p.then(() => { t.blobP = null; }, () => { t.blobP = null; });
+  return p;
 }
 function freeBlobs(keep) {
   blobs.forEach(t => { if (!keep.includes(t)) { URL.revokeObjectURL(t.blobUrl); t.blobUrl = null; blobs.delete(t); } });
@@ -407,6 +454,7 @@ function srcFor(t, m) {   // a string when the source is ready now, otherwise a 
 }
 const errLabel = e => e && e.status ? 'HTTP ' + e.status : ((e && (e.message || e.name)) || 'ошибка');
 
+/* No timeouts: a slow download just keeps loading. Only a real error moves on to the next method. */
 function attemptPlay(t) {
   const id = ++attemptId;
   const order = MODES.includes(mode) ? [mode].concat(MODES.filter(m => m !== mode)) : MODES.slice();
@@ -434,9 +482,10 @@ function attemptPlay(t) {
 }
 function playAt(i) {
   if (!queue.length) return;
+  clearTimeout(retryTimer);
   qi = ((i % queue.length) + queue.length) % queue.length;
   const t = current = queue[qi];
-  t.err = '';
+  t.err = ''; t.status = ''; t.tries = 0;
   freeBlobs([t, queue[qi + 1]]);
   attemptPlay(t);
   updateMeta(); setAnn(); render();
@@ -447,33 +496,40 @@ function prefetchNext() {
   if (mode === 'blob') { if (!n.blobUrl) loadBlob(n).catch(() => {}); }
   else if (!(n.file && Date.now() - n.fileAt < LINK_TTL / 2)) freshLink(n).catch(() => {});
 }
+/* Stay on the track: retry with a fresh link a couple of times, then wait for the user. */
 function trackFailed(t, errors) {
   if (current !== t) return;
   pendingFail = null;
-  failStreak++;
   t.err = errors.join(' · ');
+  t.tries = (t.tries || 0) + 1;
   audio.pause();
+  clearTimeout(retryTimer);
+  if (t.tries <= RETRY_DELAYS.length) {
+    const d = RETRY_DELAYS[t.tries - 1];
+    t.status = 'ПОПРОБУЮ СНОВА ЧЕРЕЗ ' + d / 1000 + ' С';
+    t.file = null;   // ask the Disk for a new link next time
+    retryTimer = setTimeout(() => { if (current === t) { t.status = 'ПРОБУЮ СНОВА…'; render(); attemptPlay(t); } }, d);
+  } else {
+    t.status = 'НЕ ГРУЗИТСЯ. ▸ — ЕЩЁ РАЗ, ▸▸ — СЛЕДУЮЩИЙ';
+  }
   setAnn(); render();
-  if (failStreak >= 3) { flash('3 ТРЕКА ПОДРЯД НЕ ИГРАЮТ'); return; }   // stop instead of skipping the whole list
-  flash('ТРЕК НЕ ИГРАЕТ, ДАЛЬШЕ');
-  if (qi < queue.length - 1) setTimeout(() => { if (current === t) playAt(qi + 1); }, 1600);
 }
-function next() { if (queue.length) { failStreak = 0; playAt(qi + 1); } }
+function next() { if (queue.length) playAt(qi + 1); }
 function prev() {
   if (!queue.length) return;
   if (audio.currentTime > 3) { audio.currentTime = 0; return; }
-  failStreak = 0; playAt(qi - 1);
+  playAt(qi - 1);
 }
 function togglePlay() {
   if (!current) { flash('ВЫБЕРИ ТРЕК В МЕНЮ'); return; }
-  if (current.err) { failStreak = 0; playAt(qi); return; }
+  if (current.err) { playAt(qi); return; }
   if (audio.paused) audio.play().catch(() => {}); else audio.pause();
 }
 function startQueue(files, idx, shuffle, name) {
   let list = files.slice();
   const first = list[idx];
   if (shuffle) shuffleArr(list);
-  queue = list; shuffled = shuffle; queueName = name; failStreak = 0;
+  queue = list; shuffled = shuffle; queueName = name;
   playAt(shuffle ? 0 : list.indexOf(first));
   if (cur().kind !== 'now') push(nowView()); else render();
 }
@@ -493,7 +549,8 @@ audio.addEventListener('error', () => {
 });
 audio.addEventListener('playing', () => {
   if (!current) return;
-  failStreak = 0;
+  clearTimeout(retryTimer);
+  if (current.err || current.status) { current.err = ''; current.status = ''; render(); }
   if (current.mode && mode !== current.mode) { mode = current.mode; store.set('mode', mode); }
   prefetchNext();
 });
@@ -535,8 +592,6 @@ if ('mediaSession' in navigator) {
   h('previoustrack', prev);
   h('nexttrack', next);
   h('seekto', d => { if (d && isFinite(d.seekTime)) audio.currentTime = d.seekTime; });
-  h('seekbackward', d => { audio.currentTime = Math.max(0, audio.currentTime - ((d && d.seekOffset) || 10)); });
-  h('seekforward', d => { audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + ((d && d.seekOffset) || 10)); });
 }
 
 /* ---------- display ---------- */
@@ -554,7 +609,8 @@ function setAnn() {
     rpt: settings.repeat === 'all',
     rpt1: settings.repeat === 'one',
     shuf: shuffled && !!current,
-    load: loadCount > 0 || (buffering && !audio.paused)
+    load: loadCount > 0 || (buffering && !audio.paused),
+    fav: isFav(current)
   };
   ann.querySelectorAll('span').forEach(s => s.classList.toggle('on', !!st[s.dataset.a]));
   led.classList.toggle('on', st.play);
@@ -571,7 +627,8 @@ function mainView() {
     build: () => {
       const it = [
         { label: 'Исполнители', hint: '›', go: () => push(folderView('/', 'Исполнители')) },
-        { label: 'Вперемешку всё', hint: '', go: shuffleAll }
+        { label: 'Избранное', hint: favList().length ? String(favList().length) : '›', go: () => push(favView()) },
+        { label: 'Все исполнители вперемешку', hint: '', go: () => shuffleAll('/', 'Все исполнители') }
       ];
       if (current) it.push({ label: 'Сейчас играет', hint: '›', go: () => push(nowView()) });
       it.push({ label: 'Настройки', hint: '›', go: () => push(settingsView()) });
@@ -586,6 +643,9 @@ function folderView(path, title) {
     if (v.error) return [{ label: 'Повторить', hint: '', go: () => loadFolder(v) }];
     const dirs = v.data.filter(x => x.dir), files = v.data.filter(x => !x.dir);
     const it = [];
+    if (dirs.length) it.push(path === '/'
+      ? { label: 'Все исполнители вперемешку', hint: '', go: () => shuffleAll('/', 'Все исполнители') }
+      : { label: 'Вперемешку с альбомами', hint: '', go: () => shuffleAll(path, title) });
     if (files.length) {
       it.push({ label: 'Слушать все', hint: String(files.length), go: () => startQueue(files, 0, false, title) });
       it.push({ label: 'Вперемешку', hint: '', go: () => startQueue(files, 0, true, title) });
@@ -603,32 +663,51 @@ async function loadFolder(v) {
   try { v.data = await listFolder(v.path); } catch (e) { v.error = e; }
   v.loading = false; setLoad(false); render();
 }
-async function shuffleAll() {
-  const v = { kind: 'list', title: 'ВСЁ ВПЕРЕМЕШКУ', loading: true, loadMsg: 'СОБИРАЮ ТРЕКИ', error: null, build: () => v.error ? [{ label: 'Повторить', hint: '', go: () => { stack.pop(); shuffleAll(); } }] : [] };
+async function shuffleAll(path, title) {
+  path = path || '/'; title = title || 'Все исполнители';
+  const v = { kind: 'list', title: (title + ' вперемешку').toUpperCase(), loading: true, loadMsg: 'СОБИРАЮ ТРЕКИ', error: null,
+    build: () => v.error ? [{ label: 'Повторить', hint: '', go: () => { stack.pop(); shuffleAll(path, title); } }] : [] };
   push(v); setLoad(true);
   try {
-    const files = await collectAll((d, t) => { v.loadMsg = 'СОБИРАЮ ТРЕКИ ' + d + '/' + t; if (cur() === v) render(); });
+    const files = await collectAll((d, t) => { v.loadMsg = 'СОБИРАЮ ТРЕКИ ' + d + '/' + t; if (cur() === v) render(); }, path);
     setLoad(false);
     if (cur() !== v) return;
     if (!files.length) { v.loading = false; v.error = Object.assign(new Error('МУЗЫКИ НЕ НАШЛОСЬ'), { custom: true }); render(); return; }
     stack.pop();
-    startQueue(files, 0, true, 'Всё вперемешку');
+    startQueue(files, 0, true, title);
   } catch (e) {
     setLoad(false); v.loading = false; v.error = e; render();
   }
 }
 function nowView() { return { kind: 'now', title: 'СЕЙЧАС ИГРАЕТ' }; }
+function favView() {
+  const v = { kind: 'list', title: 'ИЗБРАННОЕ', ver: -1, tracks: [] };
+  v.build = () => {
+    if (v.ver !== favVer) { v.tracks = favTracks(); v.ver = favVer; }
+    const tr = v.tracks;
+    if (!tr.length) return [{ label: 'Пока пусто', hint: '', go: () => flash('ДЕРЖИ ЦЕНТР НА ТРЕКЕ') }];
+    const it = [
+      { label: 'Слушать все', hint: String(tr.length), go: () => startQueue(tr, 0, false, 'Избранное') },
+      { label: 'Вперемешку', hint: '', go: () => startQueue(tr, 0, true, 'Избранное') }
+    ];
+    tr.forEach((f, i) => { const p = parseName(f.name, f.folder); it.push({ label: p.artist + ' — ' + p.title, track: f, hint: HEART, go: () => startQueue(tr, i, false, 'Избранное') }); });
+    return it;
+  };
+  return v;
+}
 function settingsView() {
   const rep = { all: 'ВСЕ', one: 'ОДИН', off: 'ВЫКЛ' };
   return {
     kind: 'list', title: 'НАСТРОЙКИ',
     build: () => [
       { label: 'Щелчки колеса', hint: settings.clicks ? 'ВКЛ' : 'ВЫКЛ', go: () => { settings.clicks = !settings.clicks; store.set('clicks', settings.clicks); render(); } },
+      { label: 'Проверить вибро', hint: '', go: () => { buzz(); setTimeout(buzz, 160); flash('ДОЛЖНО БЫЛО ДВАЖДЫ ЩЁЛКНУТЬ'); } },
       { label: 'Вибро', hint: settings.haptics ? 'ВКЛ' : 'ВЫКЛ', go: () => { settings.haptics = !settings.haptics; store.set('haptics', settings.haptics); render(); if (settings.haptics) buzz(); } },
       { label: 'Повтор', hint: rep[settings.repeat], go: () => { settings.repeat = { all: 'one', one: 'off', off: 'all' }[settings.repeat]; store.set('repeat', settings.repeat); setAnn(); render(); } },
       { label: 'Папка на Диске', hint: '›', go: () => push(editView()) },
       { label: 'Способ загрузки', hint: MODES.includes(mode) ? MODE_NAMES[mode] : 'АВТО', go: () => { mode = null; store.set('mode', null); flash('ПОДБЕРУ ЗАНОВО'); render(); } },
-      { label: 'Обновить списки', hint: '', go: () => { cache.clear(); flash('СПИСКИ ОБНОВЯТСЯ'); listFolder('/').catch(() => {}); } }
+      { label: 'Обновить списки', hint: '', go: () => { cache.clear(); flash('СПИСКИ ОБНОВЯТСЯ'); listFolder('/').catch(() => {}); } },
+      { label: 'Версия', hint: 'V6', go: () => flash('ДЕКА ДК-31 · ВЕРСИЯ 6') }
     ]
   };
 }
@@ -672,7 +751,7 @@ function render() {
     const playing = it.track && current && it.track.path === current.path;
     html += '<div class="row' + (on ? ' on' : '') + '" data-i="' + i + '"><span class="car">' + (on ? '▸' : '') +
       '</span><span class="lbl"><span class="txt">' + esc(it.label) + '</span></span><span class="hint">' +
-      (playing ? (audio.paused ? '‖' : '♪') : esc(it.hint || '')) + '</span></div>';
+      (playing ? (audio.paused ? '‖' : '♪') : (!it.hint && it.track && isFav(it.track) ? HEART : esc(it.hint || ''))) + '</span></div>';
   }
   if (items.length > rows) {
     html += '<div class="sb"><i style="top:' + (v.top / items.length * 100) + '%;height:' + (rows / items.length * 100) + '%"></i></div>';
@@ -702,8 +781,8 @@ function renderNow() {
   const p = parseName(current.name, current.folder);
   vbody.innerHTML =
     '<div class="np"><div class="np-meta"><span>ТРЕК ' + (qi + 1) + ' / ' + queue.length + '</span><span>' + esc(current.folder || queueName) + '</span></div>' +
-    '<div class="np-mid"><div class="np-artist">' + esc(p.artist) + '</div><div class="np-title">' + esc(p.title) + '</div>' +
-    (current.err ? '<div class="np-err">НЕ ИГРАЕТ — ' + esc(current.err) + '</div>' : '') + '</div>' +
+    '<div class="np-mid"><div class="np-artist">' + (isFav(current) ? HEART + ' ' : '') + esc(p.artist) + '</div><div class="np-title">' + esc(p.title) + '</div>' +
+    (current.err ? '<div class="np-err">НЕ ИГРАЕТ — ' + esc(current.err) + (current.status ? '<br>' + esc(current.status) : '') + '</div>' : '') + '</div>' +
     '<div class="np-bar">' + '<i></i>'.repeat(SEGS) + '</div>' +
     '<div class="np-time"><span id="npEl">00:00</span><span id="npRem">-00:00</span></div></div>';
   segEls = vbody.querySelectorAll('.np-bar i'); npEl = $('npEl'); npRem = $('npRem');
@@ -711,6 +790,14 @@ function renderNow() {
 }
 function updateNow() {
   if (cur().kind !== 'now' || !current || !segEls) return;
+  if (current.blobP && !current.blobUrl) {          // whole-track download in progress
+    const pr = current.progress || 0, litDl = Math.round(pr * SEGS);
+    npEl.textContent = Math.round(pr * 100) + '%';
+    npEl.classList.remove('scrub');
+    npRem.textContent = 'ЗАГРУЗКА';
+    segEls.forEach((s, i) => s.classList.toggle('on', i < litDl));
+    return;
+  }
   const d = audio.duration, t = scrubT != null ? scrubT : audio.currentTime;
   npEl.textContent = fmt(t);
   npEl.classList.toggle('scrub', scrubT != null);
@@ -736,7 +823,7 @@ function renderFoot() {
   vfoot.className = 'vfd-foot';
   const v = cur();
   if (v && v.kind === 'now') {
-    vfoot.textContent = current ? 'КРУТИ — ПЕРЕМОТКА · ЦЕНТР — ПАУЗА' : '';
+    vfoot.textContent = current ? 'ЦЕНТР — ПАУЗА · ДЕРЖИ — В ИЗБРАННОЕ' : '';
     return;
   }
   if (!current) { vfoot.textContent = 'КРУТИ КОЛЕСО · ЖМИ ЦЕНТР'; return; }
@@ -816,7 +903,35 @@ knob.addEventListener('wheel', e => {
   while (wheelAcc <= -40) { wheelAcc += 40; turn(-STEP); }
 }, { passive: false });
 
-cap.addEventListener('click', () => { unlock(); tick(true); select(); });
+function favTarget() {
+  const v = cur();
+  if (v.kind === 'now') return current;
+  if (v.kind === 'list') { const it = (v.items || [])[v.sel]; return it && it.track ? it.track : null; }
+  return null;
+}
+function favAction() {
+  const t = favTarget();
+  tick(true);
+  if (!t) { flash('ВЫБЕРИ ТРЕК'); return; }
+  const added = toggleFav(t);
+  setTimeout(() => tick(true), 110);
+  flash(added ? HEART + ' ДОБАВЛЕНО В ИЗБРАННОЕ' : 'УБРАНО ИЗ ИЗБРАННОГО');
+  setAnn(); render();
+}
+// short press = select, hold ~0.5 s until the ring lights up = favourite
+let armTimer = 0, armed = false;
+const disarm = () => { clearTimeout(armTimer); cap.classList.remove('armed'); };
+cap.addEventListener('pointerdown', () => {
+  armed = false; disarm();
+  armTimer = setTimeout(() => { armed = true; cap.classList.add('armed'); }, 500);
+});
+cap.addEventListener('pointercancel', () => { armed = false; disarm(); });
+cap.addEventListener('contextmenu', e => e.preventDefault());
+cap.addEventListener('click', () => {
+  unlock(); disarm();
+  if (armed) { armed = false; favAction(); return; }
+  tick(true); select();
+});
 $('kMenu').addEventListener('click', () => { unlock(); tick(true); back(); });
 $('kPrev').addEventListener('click', () => { unlock(); tick(true); prev(); });
 $('kNext').addEventListener('click', () => { unlock(); tick(true); next(); });
