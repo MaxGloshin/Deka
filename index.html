@@ -354,6 +354,7 @@ function unlock() {
 const MODES = ['direct', 'blob', 'inline'];
 const MODE_NAMES = { direct: 'ПОТОК', blob: 'ЦЕЛИКОМ', inline: 'ПОТОК-2' };
 let mode = store.get('mode', null);
+if (!store.get('modeReset20', false)) { mode = null; store.set('mode', null); store.set('modeReset20', true); }
 let attemptId = 0, pendingFail = null, retryTimer = 0;
 const RETRY_DELAYS = [3000, 8000];
 const blobs = new Set();
@@ -503,8 +504,7 @@ function attemptPlay(t) {
 }
 function attemptCascade(t) {
   const id = ++attemptId;
-  // Only the in-memory copy: a Yandex link in <audio> makes iOS open the Yandex app from Control Center.
-  const order = ['blob'];
+  const order = MODES.includes(mode) ? [mode].concat(MODES.filter(m => m !== mode)) : MODES.slice();
   const errors = [];
   pendingFail = null;
   const tryNext = () => {
@@ -540,7 +540,8 @@ function playAt(i) {
 function prefetchNext() {
   const n = queue[qi + 1] || (settings.repeat === 'all' ? queue[0] : null);
   if (!n || n === current || isSaved(n)) return;
-  if (!n.blobUrl) loadBlob(n).catch(() => {});   // next track is downloaded while this one plays
+  if (mode === 'blob') { if (!n.blobUrl) loadBlob(n).catch(() => {}); }
+  else if (!(n.file && Date.now() - n.fileAt < LINK_TTL / 2)) freshLink(n).catch(() => {});
 }
 /* Stay on the track: retry with a fresh link a couple of times, then wait for the user. */
 function trackFailed(t, errors) {
@@ -754,13 +755,14 @@ function settingsView() {
       { label: 'Щелчки колеса', hint: settings.clicks ? 'ВКЛ' : 'ВЫКЛ', go: () => { settings.clicks = !settings.clicks; store.set('clicks2', settings.clicks); render(); if (settings.clicks) { ensureAudioCtx(); tick(true); } } },
       { label: 'Повтор', hint: rep[settings.repeat], go: () => { settings.repeat = { all: 'one', one: 'off', off: 'all' }[settings.repeat]; store.set('repeat', settings.repeat); setAnn(); render(); } },
       { label: 'Папка на Диске', hint: '›', go: () => push(editView()) },
+      { label: 'Способ загрузки', hint: MODES.includes(mode) ? MODE_NAMES[mode] : 'АВТО', go: () => { mode = null; store.set('mode', null); render(); } },
       { label: 'Память плеера', hint: savedStats().n + ' ТР · ' + savedStats().mb + ' МБ', go: () => push(savedView()) },
       { label: clearArm ? 'Точно удалить всё?' : 'Очистить память', hint: '', go: () => {
         if (!clearArm) { clearArm = true; render(); setTimeout(() => { clearArm = false; if (cur().title === 'НАСТРОЙКИ') render(); }, 3000); return; }
         clearArm = false; clearSaved().then(render);
       } },
       { label: 'Обновить списки', hint: '', go: () => { cache.clear(); listFolder('/').catch(() => {}); } },
-      { label: 'Версия', hint: 'V19', go: () => {} }
+      { label: 'Версия', hint: 'V20', go: () => {} }
     ]
   };
 }
