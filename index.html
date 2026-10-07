@@ -17,6 +17,7 @@
 <style>
 /* Layout: one hardware faceplate. Glowing VFD window on top, four transport keys, then a 24-detent selector knob. */
 :root{
+  --dw:100vw; --dh:100vh;   /* the deck's own width/height; swapped by script when the phone is turned */
   --room:#0b0c0e;
   --plate:#1b1e22; --plate-hi:#262a30; --plate-lo:#131518;
   --silk:#dfe3e8; --silk-dim:#aab1ba; --engrave:#7d858f; --engrave-dim:#4b5159;
@@ -44,20 +45,12 @@ body{
     repeating-linear-gradient(90deg,rgba(255,255,255,.014) 0 1px,transparent 1px 3px),
     linear-gradient(180deg,var(--plate-hi),var(--plate) 45%,var(--plate-lo));
 }
-@media (min-width:560px){
+@media (min-width:560px) and (min-height:600px){
   body{background:var(--room);display:grid;place-items:center}
   .deck{width:440px;height:min(920px,calc(100dvh - 48px));border-radius:30px;
     box-shadow:0 30px 80px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.06)}
 }
 
-/* faceplate header */
-.plate-top{display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
-.brand{display:flex;align-items:center;gap:10px}
-.logo{font-family:var(--f-brand);font-weight:800;font-size:22px;letter-spacing:.14em;color:var(--silk);line-height:1}
-.model{font-size:10px;letter-spacing:.14em;color:var(--silk-dim);border:1px solid var(--engrave-dim);padding:3px 6px;border-radius:3px;line-height:1}
-.led{width:7px;height:7px;border-radius:50%;background:#16302b;box-shadow:inset 0 1px 1px rgba(0,0,0,.7)}
-.led.on{background:var(--glow);box-shadow:0 0 8px var(--glow)}
-.plate-note{font-size:9px;line-height:1.4;letter-spacing:.14em;text-transform:uppercase;text-align:right;text-shadow:0 1px 0 rgba(0,0,0,.6)}
 
 /* VFD window */
 .vfd{
@@ -71,8 +64,9 @@ body{
   background-image:radial-gradient(rgba(0,0,0,.6) .6px,transparent 1px);background-size:3px 3px;opacity:.35}
 .vfd::before{content:"";position:absolute;inset:0;pointer-events:none;z-index:2;
   background:linear-gradient(160deg,rgba(255,255,255,.06),transparent 32%)}
-.ann{display:flex;flex-wrap:wrap;gap:4px 10px;font-family:var(--f-mono);font-size:9.5px;letter-spacing:.12em;color:var(--ghost)}
-.ann span.on{color:var(--glow);text-shadow:var(--halo)}
+.vfd-title.can-back{cursor:pointer;color:var(--glow)}
+.vfd-title .bk{font-size:15px;line-height:0;margin-right:2px}
+.vfd{touch-action:none}
 .vfd-title{font-family:var(--f-mono);font-size:11px;letter-spacing:.2em;color:var(--dim);
   border-bottom:1px solid var(--ghost);padding-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .vfd-body{position:relative;flex:1 1 auto;min-height:0}
@@ -100,7 +94,7 @@ body{
 .np-meta span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:uppercase}
 .np-mid{margin-block:auto;display:flex;flex-direction:column;gap:6px;min-height:0}
 .np-artist{font-size:15px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.np-title{font-size:clamp(21px,6.6vw,29px);font-weight:700;line-height:1.08;letter-spacing:.02em;text-transform:uppercase;text-shadow:var(--halo);
+.np-title{font-size:clamp(21px,calc(var(--dw) * .066),29px);font-weight:700;line-height:1.08;letter-spacing:.02em;text-transform:uppercase;text-shadow:var(--halo);
   text-wrap:balance;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .np-err{font-family:var(--f-mono);font-size:10.5px;line-height:1.45;letter-spacing:.02em;color:var(--glow);overflow-wrap:anywhere;text-transform:none}
 .np-actions{display:flex;flex-wrap:wrap;gap:8px;flex:0 0 auto}
@@ -125,37 +119,30 @@ body{
 .vbtn.primary{background:rgba(116,242,217,.14);text-shadow:var(--halo)}
 .edit small{font-size:11px;line-height:1.45;color:var(--dim)}
 
+.vfd-foot:empty{display:none}
 .vfd-foot{display:flex;align-items:center;gap:8px;min-height:17px;padding-top:6px;border-top:1px solid var(--ghost);
   font-family:var(--f-mono);font-size:11px;letter-spacing:.06em;color:var(--dim)}
 .vfd-foot.flash{color:var(--glow);text-shadow:var(--halo)}
 .ft-txt{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:uppercase}
 .ft-time{font-variant-numeric:tabular-nums}
 
-/* transport keys */
-.keys{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;flex:0 0 auto}
-.key{height:50px;border:0;border-radius:7px;cursor:pointer;touch-action:manipulation;
-  display:grid;place-items:center;color:var(--silk-dim);font:500 11px/1 var(--f-mono);letter-spacing:.16em;padding-left:.16em;
-  background:linear-gradient(180deg,#31363c,#212429);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.09),inset 0 -2px 0 rgba(0,0,0,.35),0 3px 0 #0a0b0d,0 5px 10px rgba(0,0,0,.4)}
-.key svg{width:24px;height:14px;fill:currentColor}
-.key:active{transform:translateY(2px);box-shadow:inset 0 1px 0 rgba(255,255,255,.06),inset 0 -1px 0 rgba(0,0,0,.35),0 1px 0 #0a0b0d}
-.key:focus-visible,.cap:focus-visible{outline:2px solid var(--glow);outline-offset:3px}
 
 /* selector knob */
 .dial-zone{flex:0 0 auto;display:grid;place-items:center}
-.dial{position:relative;width:min(74vw,36vh,330px);max-width:100%;aspect-ratio:1}
-.scale{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
-.scale line{stroke:var(--engrave-dim);stroke-width:1.4;stroke-linecap:round}
-.scale line.maj{stroke:var(--engrave);stroke-width:2.2}
-.knob{position:absolute;inset:11%;border-radius:50%;touch-action:none;cursor:grab;filter:drop-shadow(0 12px 16px rgba(0,0,0,.55))}
+.dial{position:relative;width:min(calc(var(--dw) * .78),calc(var(--dh) * .4),340px);max-width:100%;aspect-ratio:1}
+.knob{position:absolute;inset:4%;border-radius:50%;touch-action:none;cursor:grab;filter:drop-shadow(0 12px 16px rgba(0,0,0,.55));transition:transform .12s ease-out}
+/* pressing an edge tips the knob toward it, like a car-console controller */
+.knob.t-up{transform:perspective(700px) rotateX(9deg)}
+.knob.t-down{transform:perspective(700px) rotateX(-9deg)}
+.knob.t-left{transform:perspective(700px) rotateY(-9deg)}
+.knob.t-right{transform:perspective(700px) rotateY(9deg)}
 .knob:active{cursor:grabbing}
 .knob-face{position:absolute;inset:0;border-radius:50%;will-change:transform;
-  background:repeating-conic-gradient(from 0deg,#80878e 0deg 1.5deg,#d3d8dc 1.5deg 3deg)}
-.knob-face::before{content:"";position:absolute;inset:6%;border-radius:50%;
-  background:repeating-radial-gradient(circle,rgba(255,255,255,.06) 0 1px,rgba(0,0,0,.05) 1px 2px),radial-gradient(circle,#bcc1c6,#9aa0a6);
-  box-shadow:inset 0 0 0 1px rgba(0,0,0,.3)}
-.notch{position:absolute;left:50%;top:10%;width:10px;height:10px;margin-left:-5px;border-radius:50%;
-  background:var(--glow);box-shadow:0 0 9px var(--glow),inset 0 1px 1px rgba(0,0,0,.35)}
+  background:repeating-radial-gradient(circle,rgba(255,255,255,.06) 0 1px,rgba(0,0,0,.05) 1px 2px),radial-gradient(circle,#c3c8cd,#a2a8ae 75%,#90969d);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.35),inset 0 -3px 6px rgba(0,0,0,.25)}
+/* uneven spun-metal grain: turns with the knob, so rotation stays visible without any marks */
+.knob-face::before{content:"";position:absolute;inset:0;border-radius:50%;
+  background:conic-gradient(from 0deg,rgba(255,255,255,.12),rgba(0,0,0,.07) 26deg,rgba(255,255,255,.05) 63deg,rgba(0,0,0,.09) 101deg,rgba(255,255,255,.11) 143deg,rgba(0,0,0,.05) 190deg,rgba(255,255,255,.08) 232deg,rgba(0,0,0,.08) 281deg,rgba(255,255,255,.05) 324deg,rgba(255,255,255,.12))}
 .sheen{position:absolute;inset:0;border-radius:50%;pointer-events:none;mix-blend-mode:overlay;
   background:conic-gradient(from 200deg,transparent,rgba(255,255,255,.6) 40deg,transparent 95deg,rgba(0,0,0,.3) 180deg,transparent 250deg,rgba(255,255,255,.4) 300deg,transparent 345deg)}
 .cap{position:absolute;inset:31%;border-radius:50%;border:0;cursor:pointer;touch-action:manipulation;
@@ -165,41 +152,25 @@ body{
 .cap.armed{box-shadow:0 0 0 2px rgba(0,0,0,.55),0 0 0 4px var(--glow),0 0 22px rgba(116,242,217,.6),inset 0 4px 9px rgba(0,0,0,.75)}
 .cap:active{transform:scale(.985);box-shadow:0 0 0 2px rgba(0,0,0,.55),0 0 0 4px rgba(255,255,255,.1),inset 0 4px 9px rgba(0,0,0,.75)}
 
+html.rot-l .deck,html.rot-r .deck{position:fixed;left:50%;top:50%;width:var(--dw);height:var(--dh);max-width:none;margin:0;
+  padding:calc(14px + max(env(safe-area-inset-left,0px),env(safe-area-inset-right,0px))) calc(16px + env(safe-area-inset-bottom,0px)) calc(16px + max(env(safe-area-inset-left,0px),env(safe-area-inset-right,0px)))}
+html.rot-l .deck{transform:translate(-50%,-50%) rotate(-90deg)}
+html.rot-r .deck{transform:translate(-50%,-50%) rotate(90deg)}
 @media (prefers-reduced-motion:reduce){.txt.mq,.blink,.np-time .scrub{animation:none}}
 </style>
 </head>
 <body>
 <main class="deck">
-  <header class="plate-top">
-    <div class="brand">
-      <span class="logo">ДЕКА</span>
-      <span class="model">ДК-31</span>
-      <span class="led" id="led" aria-hidden="true"></span>
-    </div>
-    <div class="plate-note">цифровой проигрыватель<br>источник · Яндекс Диск</div>
-  </header>
-
   <section class="vfd" aria-live="polite">
-    <div class="ann" id="ann" aria-hidden="true">
-      <span data-a="play">ИГРА</span><span data-a="pause">ПАУЗА</span><span data-a="rpt">ПОВТ</span><span data-a="rpt1">ПОВТ·1</span><span data-a="shuf">СЛУЧ</span><span data-a="load">ЗАГР</span><span data-a="fav">ИЗБР</span>
-    </div>
     <div class="vfd-title" id="vtitle">ГЛАВНОЕ</div>
     <div class="vfd-body" id="vbody"></div>
     <div class="vfd-foot" id="vfoot"></div>
   </section>
 
-  <div class="keys">
-    <button class="key" id="kMenu" type="button" aria-label="Меню, назад"></button>
-    <button class="key" id="kPrev" type="button" aria-label="Предыдущий трек"><svg viewBox="0 0 24 14"><path d="M2 1h2v12H2zM13 1v12L5 7zM22 1v12l-8-6z"/></svg></button>
-    <button class="key" id="kPlay" type="button" aria-label="Пуск или пауза"><svg viewBox="0 0 24 14"><path d="M2 1l9 6-9 6zM15 1h2.5v12H15zM19.5 1H22v12h-2.5z"/></svg></button>
-    <button class="key" id="kNext" type="button" aria-label="Следующий трек"><svg viewBox="0 0 24 14"><path d="M2 1l8 6-8 6zM11 1l8 6-8 6zM20 1h2v12h-2z"/></svg></button>
-  </div>
-
   <div class="dial-zone">
     <div class="dial">
-      <svg class="scale" id="scale" viewBox="0 0 200 200" aria-hidden="true"></svg>
-      <div class="knob" id="knob" role="slider" aria-label="Колесо выбора: крутите, чтобы листать" tabindex="0">
-        <div class="knob-face" id="knobFace"><span class="notch"></span></div>
+      <div class="knob" id="knob" role="slider" aria-label="Колесо: крутите, чтобы листать; край сверху — назад, снизу — пауза, слева и справа — треки" tabindex="0">
+        <div class="knob-face" id="knobFace"></div>
         <div class="sheen"></div>
         <button class="cap" id="cap" type="button" aria-label="Выбор"></button>
       </div>
@@ -252,7 +223,7 @@ const favTracks = () => favList().map(f => ({ name: f.n, path: f.p, dir: false, 
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
 const audio = $('audio'), vtitle = $('vtitle'), vbody = $('vbody'), vfoot = $('vfoot'),
-      ann = $('ann'), led = $('led'), knob = $('knob'), face = $('knobFace'), cap = $('cap');
+      knob = $('knob'), face = $('knobFace'), cap = $('cap');
 const reduceMotion = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = s => {
@@ -289,22 +260,19 @@ function ensureAudioCtx() {
   } catch (e) { actx = null; }
 }
 // iOS Safari has no navigator.vibrate; toggling a native switch gives a system haptic tick (iOS 18+).
-// The switch must actually be rendered (display:none gives no haptic), so it sits invisible behind the page.
-const hapLabel = (() => {
-  const i = document.createElement('input');
-  i.type = 'checkbox'; i.setAttribute('switch', ''); i.id = 'hapSwitch'; i.tabIndex = -1;
-  const l = document.createElement('label');
-  l.htmlFor = 'hapSwitch';
-  l.setAttribute('aria-hidden', 'true');
-  l.style.cssText = 'position:fixed;left:0;bottom:0;opacity:0;pointer-events:none;z-index:-1;';
-  i.style.cssText = 'margin:0;';
-  l.appendChild(i); document.body.appendChild(l);
-  return l;
-})();
+// iOS has no navigator.vibrate; switching a native <input switch> on gives a system haptic tick (iOS 18+).
+// A fresh switch each time, so every tick is an "on" toggle, linked by a separate label as in known working examples.
 function buzz() {
   try {
-    if (typeof navigator.vibrate === 'function') navigator.vibrate(7);
-    else hapLabel.click();
+    if (typeof navigator.vibrate === 'function') { navigator.vibrate(7); return; }
+    const id = 'hap' + Math.random().toString(36).slice(2);
+    const i = document.createElement('input');
+    i.type = 'checkbox'; i.setAttribute('switch', ''); i.id = id; i.style.display = 'none';
+    const l = document.createElement('label');
+    l.htmlFor = id; l.style.display = 'none'; l.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(i); document.body.appendChild(l);
+    l.click();
+    i.remove(); l.remove();
   } catch (e) {}
 }
 function tick(strong) {
@@ -707,19 +675,7 @@ function back() {
   if (stack.length > 1) { stack.pop(); scrubT = null; render(); }
 }
 function setLoad(on) { loadCount = Math.max(0, loadCount + (on ? 1 : -1)); setAnn(); }
-function setAnn() {
-  const st = {
-    play: !!current && !audio.paused,
-    pause: !!current && audio.paused,
-    rpt: settings.repeat === 'all',
-    rpt1: settings.repeat === 'one',
-    shuf: shuffled && !!current,
-    load: loadCount > 0 || (buffering && !audio.paused),
-    fav: isFav(current)
-  };
-  ann.querySelectorAll('span').forEach(s => s.classList.toggle('on', !!st[s.dataset.a]));
-  led.classList.toggle('on', st.play);
-}
+function setAnn() {}   // status indicators were removed from the display
 function flash(msg) {
   flashMsg = msg; renderFoot();
   clearTimeout(flashTimer);
@@ -835,7 +791,7 @@ function settingsView() {
         clearArm = false; clearSaved().then(() => { flash('ПАМЯТЬ ОЧИЩЕНА'); render(); });
       } },
       { label: 'Обновить списки', hint: '', go: () => { cache.clear(); flash('СПИСКИ ОБНОВЯТСЯ'); listFolder('/').catch(() => {}); } },
-      { label: 'Версия', hint: 'V9', go: () => flash('ДЕКА ДК-31 · ВЕРСИЯ 9') }
+      { label: 'Версия', hint: 'V12', go: () => flash('ВЕРСИЯ 12') }
     ]
   };
 }
@@ -853,7 +809,9 @@ function saveKey() {
 
 function render() {
   const v = cur();
-  vtitle.textContent = v.title;
+  const canBack = stack.length > 1;
+  vtitle.classList.toggle('can-back', canBack);
+  vtitle.innerHTML = (canBack ? '<span class="bk">‹</span> ' : '') + esc(v.title);
   if (v.kind === 'now') return renderNow();
   if (v.kind === 'edit') return renderEdit();
   vbody.className = 'vfd-body';
@@ -982,10 +940,10 @@ function renderFoot() {
   }
   const v = cur();
   if (v && v.kind === 'now') {
-    vfoot.textContent = current ? 'ЦЕНТР — ПАУЗА · ДЕРЖИ — В ИЗБРАННОЕ' : '';
+    vfoot.textContent = '';
     return;
   }
-  if (!current) { vfoot.textContent = 'КРУТИ КОЛЕСО · ЖМИ ЦЕНТР'; return; }
+  if (!current) { vfoot.textContent = ''; return; }
   const p = parseName(current.name, artistOf(current));
   vfoot.innerHTML = '<span>' + (audio.paused ? '‖' : '♪') + '</span><span class="ft-txt">' + esc(p.artist + ' — ' + p.title) +
     '</span><span class="ft-time">' + fmt(audio.currentTime) + '</span>';
@@ -1021,7 +979,8 @@ function select() {
   else if (v.kind === 'edit') saveKey();
 }
 
-let rot = 0, acc = 0, lastA = 0, dragId = null;
+let rot = 0, acc = 0, lastA = 0, dragId = null, downX = 0, downY = 0, downA = 0, moved = 0;
+let screenRot = 0;   // -90 / 90 while the deck is turned back against the phone's rotation
 function angleOf(e) {
   const r = knob.getBoundingClientRect();
   const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
@@ -1038,7 +997,8 @@ knob.addEventListener('pointerdown', e => {
   unlock();
   dragId = e.pointerId;
   try { knob.setPointerCapture(e.pointerId); } catch (err) {}
-  lastA = angleOf(e).a; acc = 0;
+  const g = angleOf(e);
+  lastA = downA = g.a; acc = 0; moved = 0; downX = e.clientX; downY = e.clientY;
   e.preventDefault();
 });
 knob.addEventListener('pointermove', e => {
@@ -1049,11 +1009,28 @@ knob.addEventListener('pointermove', e => {
   if (d < -180) d += 360;
   lastA = a;
   if (dist < size * 0.12) return;   // too close to the centre: angle is noise
+  moved += d;
   turn(d);
 });
-const endDrag = e => { if (e.pointerId === dragId) dragId = null; };
-knob.addEventListener('pointerup', endDrag);
-knob.addEventListener('pointercancel', endDrag);
+/* A press that hardly moves is a button: top = back, bottom = play/pause, left/right = previous/next track. */
+const EDGE = { up: back, down: togglePlay, left: prev, right: next };
+function edgePress(screenAngle) {
+  let a = screenAngle - screenRot;             // angle in the deck's own frame
+  a = ((a + 540) % 360) - 180;
+  const dir = a > -135 && a <= -45 ? 'up' : a > -45 && a <= 45 ? 'right' : a > 45 && a <= 135 ? 'down' : 'left';
+  knob.classList.add('t-' + dir);
+  setTimeout(() => knob.classList.remove('t-' + dir), 140);
+  tick(true);
+  EDGE[dir]();
+}
+knob.addEventListener('pointerup', e => {
+  if (e.pointerId !== dragId) return;
+  dragId = null;
+  const r = knob.getBoundingClientRect();
+  const dist = Math.hypot(downX - (r.left + r.width / 2), downY - (r.top + r.height / 2));
+  if (Math.hypot(e.clientX - downX, e.clientY - downY) < 12 && Math.abs(moved) < 12 && dist > r.width * 0.24) edgePress(downA);
+});
+knob.addEventListener('pointercancel', e => { if (e.pointerId === dragId) dragId = null; });
 let wheelAcc = 0;
 knob.addEventListener('wheel', e => {
   e.preventDefault(); ensureAudioCtx();
@@ -1099,10 +1076,6 @@ cap.addEventListener('click', () => {
   if (heldFired) { heldFired = false; return; }
   tick(true); select();
 });
-$('kMenu').addEventListener('click', () => { unlock(); tick(true); back(); });
-$('kPrev').addEventListener('click', () => { unlock(); tick(true); prev(); });
-$('kNext').addEventListener('click', () => { unlock(); tick(true); next(); });
-$('kPlay').addEventListener('click', () => { unlock(); tick(true); togglePlay(); });
 vbody.addEventListener('click', e => {
   const row = e.target.closest('.row');
   const v = cur();
@@ -1113,6 +1086,18 @@ vbody.addEventListener('click', e => {
   if (it && it.go) it.go();
 });
 document.addEventListener('pointerdown', unlock, { capture: true, passive: true });
+vtitle.addEventListener('click', () => { if (stack.length > 1) { unlock(); tick(true); back(); } });
+// swipe right across the display = back
+let swX = null, swY = 0;
+const vfdEl = document.querySelector('.vfd');
+vfdEl.addEventListener('pointerdown', e => { swX = e.clientX; swY = e.clientY; });
+vfdEl.addEventListener('pointerup', e => {
+  if (swX == null) return;
+  let dx = e.clientX - swX, dy = e.clientY - swY;
+  if (screenRot) { const r = -screenRot * Math.PI / 180, c = Math.cos(r), sn = Math.sin(r); [dx, dy] = [dx * c - dy * sn, dx * sn + dy * c]; }
+  swX = null;
+  if (dx > 60 && Math.abs(dy) < 50 && stack.length > 1) { tick(true); back(); }
+});
 document.addEventListener('touchstart', () => {}, { passive: true });   // enables :active on iOS
 document.addEventListener('keydown', e => {
   const tag = e.target.tagName;
@@ -1126,19 +1111,24 @@ document.addEventListener('keydown', e => {
   else if (k === 'ArrowRight') next();
   else if (k === 'ArrowLeft') prev();
 });
-window.addEventListener('resize', () => { if (cur().kind === 'list') render(); });
+window.addEventListener('resize', () => { fitOrientation(); if (cur().kind === 'list') render(); });
 
 /* ---------- boot ---------- */
-(function buildScale() {
-  let s = '';
-  for (let i = 0; i < 24; i++) {
-    const a = (i * STEP - 90) * Math.PI / 180, maj = i % 6 === 0;
-    const r1 = maj ? 84 : 86, r2 = maj ? 96 : 92;
-    s += '<line' + (maj ? ' class="maj"' : '') + ' x1="' + (100 + r1 * Math.cos(a)).toFixed(2) + '" y1="' + (100 + r1 * Math.sin(a)).toFixed(2) +
-      '" x2="' + (100 + r2 * Math.cos(a)).toFixed(2) + '" y2="' + (100 + r2 * Math.sin(a)).toFixed(2) + '"/>';
-  }
-  $('scale').innerHTML = s;
-})();
+function fitOrientation() {
+  const w = window.innerWidth, h = window.innerHeight, root = document.documentElement;
+  const coarse = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
+  let ang = typeof window.orientation === 'number' ? window.orientation
+    : (screen.orientation && typeof screen.orientation.angle === 'number' ? (screen.orientation.angle === 270 ? -90 : screen.orientation.angle) : 0);
+  let cls = '';
+  if (coarse && w > h && Math.min(w, h) < 520) cls = ang === -90 ? 'rot-r' : 'rot-l';
+  root.classList.toggle('rot-l', cls === 'rot-l');
+  root.classList.toggle('rot-r', cls === 'rot-r');
+  screenRot = cls === 'rot-l' ? -90 : cls === 'rot-r' ? 90 : 0;
+  root.style.setProperty('--dw', (cls ? h : w) + 'px');
+  root.style.setProperty('--dh', (cls ? w : h) + 'px');
+}
+fitOrientation();
+window.addEventListener('orientationchange', () => setTimeout(() => { fitOrientation(); if (cur().kind === 'list') render(); }, 120));
 stack = [mainView()];
 setAnn();
 render();
