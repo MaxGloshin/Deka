@@ -115,6 +115,7 @@ body{
 .edit label{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
 .edit input{width:100%;min-width:0;font:500 15px/1.3 var(--f-mono);color:var(--glow);background:rgba(116,242,217,.05);
   border:1px solid var(--dim);border-radius:6px;padding:10px;-webkit-user-select:text;user-select:text;outline:none}
+.edit input.bad{border-color:#ff8a7a;box-shadow:0 0 0 3px rgba(255,138,122,.18)}
 .edit input:focus{border-color:var(--glow);box-shadow:0 0 0 3px rgba(116,242,217,.15)}
 .edit-row{display:flex;gap:8px;flex-wrap:wrap}
 .vbtn{font:500 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--glow);background:transparent;
@@ -122,12 +123,6 @@ body{
 .vbtn.primary{background:rgba(116,242,217,.14);text-shadow:var(--halo)}
 .edit small{font-size:11px;line-height:1.45;color:var(--dim)}
 
-.vfd-foot:empty{display:none}
-.vfd-foot{display:flex;align-items:center;gap:8px;min-height:17px;padding-top:6px;border-top:1px solid var(--ghost);
-  font-family:var(--f-mono);font-size:11px;letter-spacing:.06em;color:var(--dim)}
-.vfd-foot.flash{color:var(--glow);text-shadow:var(--halo)}
-.ft-txt{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:uppercase}
-.ft-time{font-variant-numeric:tabular-nums}
 
 
 /* selector knob */
@@ -167,7 +162,6 @@ html.rot-r .deck{transform:translate(-50%,-50%) rotate(90deg)}
   <section class="vfd" aria-live="polite">
     <div class="vfd-title" id="vtitle">ГЛАВНОЕ</div>
     <div class="vfd-body" id="vbody"></div>
-    <div class="vfd-foot" id="vfoot"></div>
   </section>
 
   <div class="dial-zone">
@@ -201,8 +195,7 @@ const store = {
   set(k, v) { try { localStorage.setItem('deka.' + k, JSON.stringify(v)); } catch (e) {} }
 };
 const settings = {
-  clicks: store.get('clicks', true),
-  haptics: store.get('haptics', true),
+  clicks: store.get('clicks2', false),   // off by default: a page cannot tell when the phone is on silent
   repeat: store.get('repeat', 'all'),
   key: store.get('key', DEFAULT_KEY)
 };
@@ -225,7 +218,7 @@ const favTracks = () => favList().map(f => ({ name: f.n, path: f.p, dir: false, 
 
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
-const audio = $('audio'), vtitle = $('vtitle'), vbody = $('vbody'), vfoot = $('vfoot'),
+const audio = $('audio'), vtitle = $('vtitle'), vbody = $('vbody'),
       knob = $('knob'), face = $('knobFace'), cap = $('cap');
 const reduceMotion = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -262,22 +255,6 @@ function ensureAudioCtx() {
     for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 6);
   } catch (e) { actx = null; }
 }
-// iOS Safari has no navigator.vibrate; toggling a native switch gives a system haptic tick (iOS 18+).
-// iOS has no navigator.vibrate; switching a native <input switch> on gives a system haptic tick (iOS 18+).
-// A fresh switch each time, so every tick is an "on" toggle, linked by a separate label as in known working examples.
-function buzz() {
-  try {
-    if (typeof navigator.vibrate === 'function') { navigator.vibrate(7); return; }
-    const id = 'hap' + Math.random().toString(36).slice(2);
-    const i = document.createElement('input');
-    i.type = 'checkbox'; i.setAttribute('switch', ''); i.id = id; i.style.display = 'none';
-    const l = document.createElement('label');
-    l.htmlFor = id; l.style.display = 'none'; l.setAttribute('aria-hidden', 'true');
-    document.body.appendChild(i); document.body.appendChild(l);
-    l.click();
-    i.remove(); l.remove();
-  } catch (e) {}
-}
 function tick(strong) {
   if (settings.clicks && actx && clickBuf) {
     try {
@@ -287,7 +264,6 @@ function tick(strong) {
       s.connect(f); f.connect(g); g.connect(actx.destination); s.start();
     } catch (e) {}
   }
-  if (settings.haptics) buzz();
 }
 
 /* ---------- Yandex Disk ---------- */
@@ -362,7 +338,7 @@ function errText(e) {
 
 /* ---------- player ---------- */
 let queue = [], qi = -1, current = null, shuffled = false, queueName = '';
-let unlocked = false, buffering = false, loadCount = 0, flashMsg = '', flashTimer = 0;
+let unlocked = false, buffering = false, loadCount = 0;
 
 function unlock() {
   ensureAudioCtx();
@@ -463,7 +439,7 @@ const dlState = t => isSaved(t) ? 'saved' : dlBusy === t ? 'busy' : dlJobs.inclu
 function queueDownload(list) {
   let added = 0;
   list.forEach(t => { if (dlState(t) === 'none') { dlJobs.push(t); added++; } });
-  if (!added) { flash('УЖЕ В ПАМЯТИ'); return; }
+  if (!added) { return; }
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) {}
   runDownloads(); dlRefresh();
 }
@@ -478,15 +454,15 @@ async function runDownloads() {
     saveMeta(); dlOk++;
   } catch (e) {
     dlBad++; dlErr = e && e.name === 'QuotaExceededError' ? 'НЕТ МЕСТА' : errLabel(e);
+    t.dlFail = Date.now(); setTimeout(updateDl, 4100);
   }
   dlBusy = null; t.dlProgress = null;
   if (dlJobs.length) { runDownloads(); return; }
-  flash(dlBad ? 'НЕ СКАЧАЛОСЬ ' + dlBad + ' — ' + dlErr : (dlOk > 1 ? '✓ В ПАМЯТИ +' + dlOk + ' ТРЕКОВ' : '✓ ТРЕК В ПАМЯТИ ПЛЕЕРА'));
   dlOk = dlBad = 0;
   dlRefresh();
   if (stack.length && cur().kind === 'list') render();
 }
-function dlRefresh() { renderFoot(); updateDl(); }
+function dlRefresh() { updateDl(); }
 async function removeSaved(t) { try { await idb.del(offKey(t)); } catch (e) {} delete savedMeta[offKey(t)]; saveMeta(); }
 async function clearSaved() {
   const pre = settings.key + '|';
@@ -522,12 +498,13 @@ function attemptPlay(t) {
     pendingFail = () => attemptCascade(t);
     audio.src = offUrl;
     const p = audio.play();
-    if (p) p.catch(err => { if (err && err.name === 'NotAllowedError') flash('НАЖМИ ▸ ЧТОБЫ ИГРАТЬ'); });
+    if (p) p.catch(() => {});
   }, () => { if (id === attemptId) attemptCascade(t); });
 }
 function attemptCascade(t) {
   const id = ++attemptId;
-  const order = MODES.includes(mode) ? [mode].concat(MODES.filter(m => m !== mode)) : MODES.slice();
+  // Always try the in-memory copy first: with a Yandex link in <audio>, iOS opens that link from Control Center.
+  const order = ['blob'].concat(MODES.includes(mode) && mode !== 'blob' ? [mode] : [], MODES.filter(m => m !== 'blob' && m !== mode));
   const errors = [];
   pendingFail = null;
   const tryNext = () => {
@@ -541,7 +518,7 @@ function attemptCascade(t) {
       pendingFail = detail => { errors.push(MODE_NAMES[m] + ': ' + detail); tryNext(); };
       audio.src = src;
       const p = audio.play();
-      if (p) p.catch(err => { if (err && err.name === 'NotAllowedError') flash('НАЖМИ ▸ ЧТОБЫ ИГРАТЬ'); });
+      if (p) p.catch(() => {});
     };
     let r;
     try { r = srcFor(t, m); } catch (e) { fail(e); return; }
@@ -563,8 +540,7 @@ function playAt(i) {
 function prefetchNext() {
   const n = queue[qi + 1] || (settings.repeat === 'all' ? queue[0] : null);
   if (!n || n === current || isSaved(n)) return;
-  if (mode === 'blob') { if (!n.blobUrl) loadBlob(n).catch(() => {}); }
-  else if (!(n.file && Date.now() - n.fileAt < LINK_TTL / 2)) freshLink(n).catch(() => {});
+  if (!n.blobUrl) loadBlob(n).catch(() => {});   // next track is downloaded while this one plays
 }
 /* Stay on the track: retry with a fresh link a couple of times, then wait for the user. */
 function trackFailed(t, errors) {
@@ -591,7 +567,7 @@ function prev() {
   playAt(qi - 1);
 }
 function togglePlay() {
-  if (!current) { flash('ВЫБЕРИ ТРЕК В МЕНЮ'); return; }
+  if (!current) { return; }
   if (current.err) { playAt(qi); return; }
   if (audio.paused) audio.play().catch(() => {}); else audio.pause();
 }
@@ -627,15 +603,13 @@ audio.addEventListener('playing', () => {
 });
 ['play', 'pause', 'playing'].forEach(ev => audio.addEventListener(ev, () => {
   if (ev === 'playing') buffering = false;
-  setAnn(); renderFoot(); updatePosition();
+  setAnn(); updatePosition();
 }));
 audio.addEventListener('waiting', () => { buffering = true; setAnn(); });
 audio.addEventListener('loadedmetadata', () => { updateNow(); updatePosition(); });
 audio.addEventListener('seeked', updatePosition);
 audio.addEventListener('timeupdate', () => {
   updateNow();
-  const ft = vfoot.querySelector('.ft-time');
-  if (ft) ft.textContent = fmt(audio.currentTime);
 });
 
 /* lock screen / control centre */
@@ -679,11 +653,6 @@ function back() {
 }
 function setLoad(on) { loadCount = Math.max(0, loadCount + (on ? 1 : -1)); setAnn(); }
 function setAnn() {}   // status indicators were removed from the display
-function flash(msg) {
-  flashMsg = msg; renderFoot();
-  clearTimeout(flashTimer);
-  flashTimer = setTimeout(() => { flashMsg = ''; renderFoot(); }, 1800);
-}
 
 function mainView() {
   return {
@@ -750,7 +719,7 @@ function savedView() {
   v.build = () => {
     if (v.ver !== savedVer) { v.tracks = savedTracks(); v.ver = savedVer; }
     const tr = v.tracks;
-    if (!tr.length) return [{ label: 'Пока пусто', hint: '', go: () => flash('ЖМИ «СКАЧАТЬ» НА ЭКРАНЕ ТРЕКА') }];
+    if (!tr.length) return [{ label: 'Пока пусто', hint: '', go: () => {} }];
     const it = [
       { label: 'Слушать все', hint: String(tr.length), go: () => startQueue(tr, 0, false, 'Скачанные') },
       { label: 'Вперемешку', hint: '', go: () => startQueue(tr, 0, true, 'Скачанные') }
@@ -765,7 +734,7 @@ function favView() {
   v.build = () => {
     if (v.ver !== favVer) { v.tracks = favTracks(); v.ver = favVer; }
     const tr = v.tracks;
-    if (!tr.length) return [{ label: 'Пока пусто', hint: '', go: () => flash('ДЕРЖИ ЦЕНТР НА ТРЕКЕ') }];
+    if (!tr.length) return [{ label: 'Пока пусто', hint: '', go: () => {} }];
     const it = [
       { label: 'Слушать все', hint: String(tr.length), go: () => startQueue(tr, 0, false, 'Избранное') },
       { label: 'Вперемешку', hint: '', go: () => startQueue(tr, 0, true, 'Избранное') }
@@ -782,19 +751,17 @@ function settingsView() {
   return {
     kind: 'list', title: 'НАСТРОЙКИ',
     build: () => [
-      { label: 'Щелчки колеса', hint: settings.clicks ? 'ВКЛ' : 'ВЫКЛ', go: () => { settings.clicks = !settings.clicks; store.set('clicks', settings.clicks); render(); } },
-      { label: 'Проверить вибро', hint: '', go: () => { buzz(); setTimeout(buzz, 160); flash('ДОЛЖНО БЫЛО ДВАЖДЫ ЩЁЛКНУТЬ'); } },
-      { label: 'Вибро', hint: settings.haptics ? 'ВКЛ' : 'ВЫКЛ', go: () => { settings.haptics = !settings.haptics; store.set('haptics', settings.haptics); render(); if (settings.haptics) buzz(); } },
+      { label: 'Щелчки колеса', hint: settings.clicks ? 'ВКЛ' : 'ВЫКЛ', go: () => { settings.clicks = !settings.clicks; store.set('clicks2', settings.clicks); render(); if (settings.clicks) { ensureAudioCtx(); tick(true); } } },
       { label: 'Повтор', hint: rep[settings.repeat], go: () => { settings.repeat = { all: 'one', one: 'off', off: 'all' }[settings.repeat]; store.set('repeat', settings.repeat); setAnn(); render(); } },
       { label: 'Папка на Диске', hint: '›', go: () => push(editView()) },
-      { label: 'Способ загрузки', hint: MODES.includes(mode) ? MODE_NAMES[mode] : 'АВТО', go: () => { mode = null; store.set('mode', null); flash('ПОДБЕРУ ЗАНОВО'); render(); } },
+      { label: 'Способ загрузки', hint: MODES.includes(mode) ? MODE_NAMES[mode] : 'АВТО', go: () => { mode = null; store.set('mode', null); render(); } },
       { label: 'Память плеера', hint: savedStats().n + ' ТР · ' + savedStats().mb + ' МБ', go: () => push(savedView()) },
       { label: clearArm ? 'Точно удалить всё?' : 'Очистить память', hint: '', go: () => {
         if (!clearArm) { clearArm = true; render(); setTimeout(() => { clearArm = false; if (cur().title === 'НАСТРОЙКИ') render(); }, 3000); return; }
-        clearArm = false; clearSaved().then(() => { flash('ПАМЯТЬ ОЧИЩЕНА'); render(); });
+        clearArm = false; clearSaved().then(render);
       } },
-      { label: 'Обновить списки', hint: '', go: () => { cache.clear(); flash('СПИСКИ ОБНОВЯТСЯ'); listFolder('/').catch(() => {}); } },
-      { label: 'Версия', hint: 'V15', go: () => flash('ВЕРСИЯ 15') }
+      { label: 'Обновить списки', hint: '', go: () => { cache.clear(); listFolder('/').catch(() => {}); } },
+      { label: 'Версия', hint: 'V18', go: () => {} }
     ]
   };
 }
@@ -803,11 +770,11 @@ function saveKey() {
   const inp = $('keyInput');
   if (!inp) return;
   const val = inp.value.trim();
-  if (!/^https?:\/\/(disk\.yandex\.[a-z.]+|yadi\.sk)\//i.test(val)) { flash('НУЖНА ССЫЛКА DISK.YANDEX.RU'); return; }
+  inp.classList.remove('bad');
+  if (!/^https?:\/\/(disk\.yandex\.[a-z.]+|yadi\.sk)\//i.test(val)) { inp.classList.add('bad'); return; }   // red frame instead of a message
   settings.key = val; store.set('key', val); cache.clear();
   inp.blur();
-  stack = [stack[0]]; render(); flash('ПАПКА СОХРАНЕНА');
-  listFolder('/').catch(() => {});
+  stack = [stack[0]]; render(); listFolder('/').catch(() => {});
 }
 
 function render() {
@@ -823,7 +790,7 @@ function render() {
   let html = '', reserved = 0;
   if (v.loading) {
     vbody.innerHTML = '<div class="msg">' + esc(v.loadMsg || 'ЗАГРУЗКА') + '<span class="blink">…</span></div>';
-    renderFoot(); return;
+    return;
   }
   if (v.error) {
     const [a, b] = errText(v.error);
@@ -847,8 +814,7 @@ function render() {
   }
   vbody.innerHTML = html;
   marquee();
-  renderFoot();
-}
+  }
 function marquee() {
   if (reduceMotion) return;
   const t = vbody.querySelector('.row.on .txt');
@@ -865,7 +831,7 @@ function renderNow() {
   vbody.className = 'vfd-body';
   if (!current) {
     vbody.innerHTML = '<div class="msg">НЕТ ТРЕКА<small>Выбери исполнителя в меню</small></div>';
-    segEls = null; renderFoot(); return;
+    segEls = null; return;
   }
   const p = parseName(current.name, artistOf(current));
   vbody.innerHTML =
@@ -881,8 +847,7 @@ function renderNow() {
   $('npFav').addEventListener('click', e => { e.stopPropagation(); unlock(); favAction(); });
   $('npDl').addEventListener('click', e => { e.stopPropagation(); unlock(); tick(true); dlButton(); });
   updateDl();
-  updateNow(); renderFoot();
-}
+  updateNow(); }
 /* "Скачать" saves the track into the player's own storage; a second tap on "в памяти" offers removal. */
 let delArm = null, delTimer = 0;
 function updateDl() {
@@ -892,7 +857,8 @@ function updateDl() {
   b.classList.toggle('on', st === 'saved');
   b.textContent = st === 'saved' ? (delArm === t ? '✕ УДАЛИТЬ ИЗ ПАМЯТИ?' : '✓ В ПАМЯТИ')
     : st === 'busy' ? '↓ ' + Math.round((t.dlProgress || 0) * 100) + '%'
-    : st === 'queued' ? '↓ В ОЧЕРЕДИ' : '↓ СКАЧАТЬ';
+    : st === 'queued' ? '↓ В ОЧЕРЕДИ'
+    : t.dlFail && Date.now() - t.dlFail < 4000 ? (dlErr === 'НЕТ МЕСТА' ? '↓ НЕТ МЕСТА' : '↓ ОШИБКА') : '↓ СКАЧАТЬ';
 }
 function dlButton() {
   const t = current;
@@ -901,7 +867,7 @@ function dlButton() {
   if (st === 'none') { queueDownload([t]); return; }
   if (st !== 'saved') return;
   clearTimeout(delTimer);
-  if (delArm === t) { delArm = null; removeSaved(t).then(() => { flash('УДАЛЕНО ИЗ ПАМЯТИ'); render(); }); }
+  if (delArm === t) { delArm = null; removeSaved(t).then(render); }
   else { delArm = t; delTimer = setTimeout(() => { delArm = null; updateDl(); }, 3000); updateDl(); }
 }
 function updateNow() {
@@ -932,25 +898,7 @@ function renderEdit() {
   $('keyInput').value = settings.key;
   $('editForm').addEventListener('submit', e => { e.preventDefault(); tick(true); saveKey(); });
   $('resetKey').addEventListener('click', () => { tick(true); $('keyInput').value = DEFAULT_KEY; });
-  renderFoot();
-}
-function renderFoot() {
-  if (flashMsg) { vfoot.className = 'vfd-foot flash'; vfoot.textContent = flashMsg; return; }
-  vfoot.className = 'vfd-foot';
-  if (dlBusy) {
-    vfoot.textContent = '↓ В ПАМЯТЬ ' + Math.round((dlBusy.dlProgress || 0) * 100) + '%' + (dlJobs.length ? ' · ЕЩЁ ' + dlJobs.length : '');
-    return;
   }
-  const v = cur();
-  if (v && v.kind === 'now') {
-    vfoot.textContent = '';
-    return;
-  }
-  if (!current) { vfoot.textContent = ''; return; }
-  const p = parseName(current.name, artistOf(current));
-  vfoot.innerHTML = '<span>' + (audio.paused ? '‖' : '♪') + '</span><span class="ft-txt">' + esc(p.artist + ' — ' + p.title) +
-    '</span><span class="ft-time">' + fmt(audio.currentTime) + '</span>';
-}
 
 /* ---------- controls ---------- */
 let scrubT = null, scrubTimer = 0;
@@ -1051,7 +999,7 @@ function favTarget() {
 function favAction() {
   const t = favTarget();
   tick(true);
-  if (!t) { flash('ВЫБЕРИ ТРЕК'); return; }
+  if (!t) { return; }
   toggleFav(t);   // the ♥ next to the artist and the button state show the result; no message
   setTimeout(() => tick(true), 110);
   setAnn(); render();
@@ -1068,10 +1016,7 @@ cap.addEventListener('pointerdown', () => {
     setTimeout(() => cap.classList.remove('armed'), 500);
   }, 550);
 });
-['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => cap.addEventListener(ev, () => {
-  clearTimeout(armTimer);
-  if (ev === 'pointerup' && heldFired && settings.haptics) buzz();   // haptic inside the gesture
-}));
+['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => cap.addEventListener(ev, () => clearTimeout(armTimer)));
 cap.addEventListener('contextmenu', e => e.preventDefault());
 cap.addEventListener('click', () => {
   unlock();
