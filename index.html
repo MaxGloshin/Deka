@@ -101,7 +101,7 @@ body{
   text-wrap:balance;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .np-err{font-family:var(--f-mono);font-size:10.5px;line-height:1.45;letter-spacing:.02em;color:var(--glow);overflow-wrap:anywhere;text-transform:none}
 .np-actions{display:flex;flex-wrap:wrap;gap:8px;flex:0 0 auto}
-.np-actions .vbtn{display:inline-flex;align-items:center;gap:6px;text-decoration:none;touch-action:manipulation;padding:8px 11px}
+.np-actions .vbtn{min-width:13.5em;justify-content:center;display:inline-flex;align-items:center;gap:6px;text-decoration:none;touch-action:manipulation;padding:8px 11px}
 .vbtn.on{background:rgba(116,242,217,.16);border-color:var(--glow);text-shadow:var(--halo)}
 .vbtn.off{opacity:.45;pointer-events:none}
 .np-bar{display:grid;grid-template-columns:repeat(32,1fr);gap:2px;height:10px;flex:0 0 auto}
@@ -762,7 +762,7 @@ function settingsView() {
         clearArm = false; clearSaved().then(render);
       } },
       { label: 'Обновить списки', hint: '', go: () => { cache.clear(); listFolder('/').catch(() => {}); } },
-      { label: 'Версия', hint: 'V20', go: () => {} }
+      { label: 'Версия', hint: 'V21', go: () => {} }
     ]
   };
 }
@@ -839,37 +839,58 @@ function renderNow() {
     '<div class="np"><div class="np-meta"><span>ТРЕК ' + (qi + 1) + ' / ' + queue.length + '</span><span>' + esc(current.folder || queueName) + '</span></div>' +
     '<div class="np-mid"><div class="np-artist">' + (isFav(current) ? HEART + ' ' : '') + esc(p.artist) + '</div><div class="np-title">' + esc(p.title) + '</div>' +
     (current.err ? '<div class="np-err">НЕ ИГРАЕТ — ' + esc(current.err) + (current.status ? '<br>' + esc(current.status) : '') + '</div>' : '') + '</div>' +
-    '<div class="np-actions"><button type="button" class="vbtn' + (isFav(current) ? ' on' : '') + '" id="npFav">' +
-      (isFav(current) ? HEART + ' В ИЗБРАННОМ' : '♡ В ИЗБРАННОЕ') + '</button>' +
-      '<button type="button" class="vbtn" id="npDl">↓ СКАЧАТЬ</button></div>' +
+    '<div class="np-actions"><button type="button" class="vbtn" id="npAct"></button></div>' +
     '<div class="np-bar">' + '<i></i>'.repeat(SEGS) + '</div>' +
     '<div class="np-time"><span id="npEl">00:00</span><span id="npRem">-00:00</span></div></div>';
   segEls = vbody.querySelectorAll('.np-bar i'); npEl = $('npEl'); npRem = $('npRem');
-  $('npFav').addEventListener('click', e => { e.stopPropagation(); unlock(); favAction(); });
-  $('npDl').addEventListener('click', e => { e.stopPropagation(); unlock(); tick(true); dlButton(); });
+  wireAct($('npAct'));
   updateDl();
   updateNow(); }
 /* "Скачать" saves the track into the player's own storage; a second tap on "в памяти" offers removal. */
+/* One button on the track screen.
+   ♡ В ИЗБРАННОЕ → (now ♥) СКАЧАТЬ → progress → В ПАМЯТИ → tap again to offer removal from memory.
+   Holding the button (or the centre of the wheel) takes the track out of favourites. */
 let delArm = null, delTimer = 0;
 function updateDl() {
-  const b = $('npDl'), t = current;
+  const b = $('npAct'), t = current;
   if (!b || !t) return;
-  const st = dlState(t);
-  b.classList.toggle('on', st === 'saved');
-  b.textContent = st === 'saved' ? (delArm === t ? '✕ УДАЛИТЬ ИЗ ПАМЯТИ?' : '✓ В ПАМЯТИ')
-    : st === 'busy' ? '↓ ' + Math.round((t.dlProgress || 0) * 100) + '%'
-    : st === 'queued' ? '↓ В ОЧЕРЕДИ'
-    : t.dlFail && Date.now() - t.dlFail < 4000 ? (dlErr === 'НЕТ МЕСТА' ? '↓ НЕТ МЕСТА' : '↓ ОШИБКА') : '↓ СКАЧАТЬ';
+  const fav = isFav(t), st = dlState(t);
+  b.classList.toggle('on', fav);
+  if (!fav) { b.textContent = '♡ В ИЗБРАННОЕ'; return; }
+  b.textContent = HEART + ' ' + (
+    st === 'saved' ? (delArm === t ? 'УДАЛИТЬ ИЗ ПАМЯТИ?' : 'В ПАМЯТИ ✓')
+    : st === 'busy' ? 'ЗАГРУЗКА ' + Math.round((t.dlProgress || 0) * 100) + '%'
+    : st === 'queued' ? 'В ОЧЕРЕДИ'
+    : t.dlFail && Date.now() - t.dlFail < 4000 ? (dlErr === 'НЕТ МЕСТА' ? 'НЕТ МЕСТА' : 'ОШИБКА, ЕЩЁ РАЗ')
+    : 'СКАЧАТЬ ↓');
 }
-function dlButton() {
+function actButton() {
   const t = current;
   if (!t) return;
+  if (!isFav(t)) { toggleFav(t); render(); return; }
   const st = dlState(t);
   if (st === 'none') { queueDownload([t]); return; }
   if (st !== 'saved') return;
   clearTimeout(delTimer);
   if (delArm === t) { delArm = null; removeSaved(t).then(render); }
   else { delArm = t; delTimer = setTimeout(() => { delArm = null; updateDl(); }, 3000); updateDl(); }
+}
+function wireAct(b) {
+  let holdTimer = 0, held = false;
+  b.addEventListener('pointerdown', () => {
+    held = false; clearTimeout(holdTimer);
+    holdTimer = setTimeout(() => {
+      held = true;
+      if (current && isFav(current)) { toggleFav(current); tick(true); render(); }
+    }, 550);
+  });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => b.addEventListener(ev, () => clearTimeout(holdTimer)));
+  b.addEventListener('contextmenu', e => e.preventDefault());
+  b.addEventListener('click', e => {
+    e.stopPropagation(); unlock();
+    if (held) { held = false; return; }
+    tick(true); actButton();
+  });
 }
 function updateNow() {
   if (cur().kind !== 'now' || !current || !segEls) return;
