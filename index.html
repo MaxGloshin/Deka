@@ -376,7 +376,12 @@ const MODE_NAMES = { direct: 'ПОТОК', blob: 'ЦЕЛИКОМ', inline: 'ПО
 let mode = store.get('mode', null);
 if (!store.get('modeReset20', false)) { mode = null; store.set('mode', null); store.set('modeReset20', true); }
 let attemptId = 0, pendingFail = null, retryTimer = 0;
-const RETRY_DELAYS = [3000, 8000];
+const RETRY_DELAYS = [700, 2500, 6000];   // quick retries with a new link: the Disk often serves the file from another server
+const BAD_MS = 30 * 60e3;                  // a track the Disk refused is skipped for 30 minutes, then tried again
+const badUntil = new Map();
+const isBad = t => !!t && (badUntil.get(t.path) || 0) > Date.now();
+let corsOK = store.get('corsOK', false);   // the Disk's file server has answered a page request here at least once
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 const blobs = new Set();
 
 function linkFresh(t) { return !!t.file && Date.now() - t.fileAt < LINK_TTL; }
@@ -420,6 +425,7 @@ function loadBlob(t) {
   const p = (async () => {
     t.progress = 0;
     const b = await fetchTrackBlob(t, pr => { t.progress = pr; if (t === current) updateNow(); });
+    if (!corsOK) { corsOK = true; store.set('corsOK', true); }
     t.progress = 1; t.blobObj = b;
     t.blobUrl = URL.createObjectURL(b); blobs.add(t);
     return t.blobUrl;
@@ -536,7 +542,8 @@ function attemptPlay(t) {
 }
 function attemptCascade(t) {
   const id = ++attemptId;
-  const order = MODES.includes(mode) ? [mode].concat(MODES.filter(m => m !== mode)) : MODES.slice();
+  const lastTry = (t.tries || 0) >= RETRY_DELAYS.length;
+  const order = MODES.includes(mode) && !lastTry ? [mode] : MODES.includes(mode) ? [mode].concat(MODES.filter(m => m !== mode)) : MODES.slice();
   const errors = [];
   pendingFail = null;
   const tryNext = () => {
@@ -564,7 +571,7 @@ function playAt(i, startAt) {
   clearTimeout(retryTimer);
   qi = ((i % queue.length) + queue.length) % queue.length;
   const t = current = queue[qi];
-  t.err = ''; t.status = ''; t.tries = 0; t.started = false;
+  t.err = ''; t.status = ''; t.tries = 0; t.started = false; t.retrying = false; t.gaveUp = false;
   t.startAt = startAt || 0; t.lastPos = startAt || 0;
   freeBlobs([t, queue[qi + 1]]);
   attemptPlay(t);
@@ -573,7 +580,7 @@ function playAt(i, startAt) {
 let lastRecover = 0;
 function trackIsStuck(t) {
   if (!t) return false;
-  if (t.err || t.status) return true;                                             // failed / waiting to retry
+  if (t.gaveUp) return true;                                                      // given up: try again on return
   if (t.blobP && !t.blobUrl && !(t.progress > 0)) return true;                    // whole-track download hanging at 0%
   if (audio.error) return true;
   return false;
@@ -594,11 +601,38 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 document.addEventListener('resume', () => maybeRecover('resume'));
 window.addEventListener('online', () => maybeRecover('online'));
 window.addEventListener('pageshow', e => { if (e.persisted) maybeRecover('pageshow'); });
-function prefetchNext() {
-  const n = queue[qi + 1] || (settings.repeat === 'all' ? queue[0] : null);
-  if (!n || n === current || isSaved(n)) return;
-  if (mode === 'blob') { if (!n.blobUrl) loadBlob(n).catch(() => {}); }
-  else if (!(n.file && Date.now() - n.fileAt < LINK_TTL / 2)) freshLink(n).catch(() => {});
+/* Asks the Disk for the start of a track and stops right away: 'ok', 'bad' (refused) or 'unknown'. */
+async function probe(t) {
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 15000);
+  try {
+    const href = await freshLink(t);
+    const r = await fetch(href, { signal: ctl.signal, referrerPolicy: 'no-referrer' });
+    const ok = r.ok && !/text\/html/i.test(r.headers.get('content-type') || '');
+    if (ok && !corsOK) { corsOK = true; store.set('corsOK', true); }
+    return ok ? 'ok' : 'bad';
+  } catch (e) {
+    if (ctl.signal.aborted || !navigator.onLine) return 'unknown';
+    return corsOK ? 'bad' : 'unknown';             // before the first success a failure here proves nothing
+  } finally { clearTimeout(timer); try { ctl.abort(); } catch (e) {} }
+}
+let probing = null;
+async function prefetchNext() {
+  const ni = nextPlayable(qi, 1);
+  const n = ni === -1 ? null : queue[ni];
+  if (!n || n === current || isSaved(n) || probing === n) return;
+  probing = n;
+  try {
+    for (let i = 0; i < 3; i++) {
+      const res = await probe(n);
+      if (res !== 'bad') {
+        if (res === 'ok' && mode === 'blob' && !n.blobUrl) loadBlob(n).catch(() => {});
+        return;
+      }
+      await sleep(1500 * (i + 1));
+    }
+    badUntil.set(n.path, Date.now() + BAD_MS);     // refused three times: skip it this time round
+  } finally { if (probing === n) probing = null; }
+  if (isBad(n) && current && !current.err) prefetchNext();   // check the one after it instead
 }
 /* Stay on the track: retry with a fresh link a couple of times, then wait for the user. */
 function invalidateLinks() {
@@ -610,27 +644,47 @@ function trackFailed(t, errors) {
   pendingFail = null;
   t.err = errors.join(' · ');
   t.tries = (t.tries || 0) + 1;
-  audio.pause();
   clearTimeout(retryTimer);
   if (t.tries <= RETRY_DELAYS.length) {
-    const d = RETRY_DELAYS[t.tries - 1];
-    t.status = 'ПОПРОБУЮ СНОВА ЧЕРЕЗ ' + d / 1000 + ' С';
-    invalidateLinks();   // ask the Disk for new links next time
-    retryTimer = setTimeout(() => { if (current === t) { t.status = 'ПРОБУЮ СНОВА…'; render(); attemptPlay(t); } }, d);
-  } else {
-    t.status = 'НЕ ГРУЗИТСЯ. ▸ — ЕЩЁ РАЗ, ▸▸ — СЛЕДУЮЩИЙ';
+    t.retrying = true; t.file = null;             // new link next time
+    if (t.blobCtl) t.blobCtl.abort();
+    t.blobP = null;
+    retryTimer = setTimeout(() => { if (current === t) attemptPlay(t); }, RETRY_DELAYS[t.tries - 1]);
+    updateNow();
+    return;
   }
-  setAnn(); render();
+  t.retrying = false;
+  badUntil.set(t.path, Date.now() + BAD_MS);
+  const n = nextPlayable(qi, 1);
+  if (n !== -1 && n !== qi) { playAt(n, 0); return; }      // keep the music going
+  t.gaveUp = true;
+  t.status = 'ДИСК НЕ ОТДАЁТ ЭТОТ ТРЕК. ▸ — ЕЩЁ РАЗ';
+  audio.pause();
+  render();
 }
-function next() { if (queue.length) playAt(qi + 1); }
+/* index of the next track that is not currently refused by the Disk; -1 if none */
+function nextPlayable(from, dir) {
+  const L = queue.length;
+  for (let k = 1; k <= L; k++) {
+    let i = from + dir * k;
+    if (i >= L || i < 0) {
+      if (settings.repeat !== 'all') return -1;     // end of the list without repeat
+      i = ((i % L) + L) % L;
+    }
+    if (!isBad(queue[i]) || isSaved(queue[i])) return i;
+  }
+  return -1;
+}
+function next() { if (!queue.length) return; const n = nextPlayable(qi, 1); playAt(n === -1 ? qi + 1 : n); }
 function prev() {
   if (!queue.length) return;
   if (audio.currentTime > 3) { audio.currentTime = 0; return; }
-  playAt(qi - 1);
+  const n = nextPlayable(qi, -1);
+  playAt(n === -1 ? qi - 1 : n);
 }
 function togglePlay() {
   if (!current) { return; }
-  if (current.err) { playAt(qi); return; }
+  if (current.err) { badUntil.delete(current.path); playAt(qi, current.lastPos || 0); return; }
   if (audio.paused) audio.play().catch(() => {}); else audio.pause();
 }
 function startQueue(files, idx, shuffle, name) {
@@ -645,8 +699,8 @@ function startQueue(files, idx, shuffle, name) {
 audio.addEventListener('ended', () => {
   if (!current) return;
   if (settings.repeat === 'one') { audio.currentTime = 0; audio.play().catch(() => {}); return; }
-  if (qi < queue.length - 1) playAt(qi + 1);
-  else if (settings.repeat === 'all') playAt(0);
+  const n = nextPlayable(qi, 1);
+  if (n !== -1 && (n > qi || settings.repeat === 'all')) playAt(n);
   else { setAnn(); render(); }
 });
 audio.addEventListener('error', () => {
@@ -659,7 +713,7 @@ audio.addEventListener('error', () => {
 });
 audio.addEventListener('playing', () => {
   if (!current) return;
-  current.started = true; pendingFail = null;
+  current.started = true; pendingFail = null; current.retrying = false; current.err = ''; badUntil.delete(current.path);
   clearTimeout(retryTimer);
   if (current.err || current.status) { current.err = ''; current.status = ''; render(); }
   if (MODES.includes(current.mode) && mode !== current.mode) { mode = current.mode; store.set('mode', mode); }
@@ -830,7 +884,7 @@ function settingsView() {
         clearArm = false; clearSaved().then(render);
       } },
       { label: 'Обновить списки', hint: '', go: () => { cache.clear(); listFolder('/').catch(() => {}); } },
-      { label: 'Версия', hint: 'V24', go: () => {} }
+      { label: 'Версия', hint: 'V25', go: () => {} }
     ]
   };
 }
@@ -876,7 +930,7 @@ function render() {
     const playing = it.track && current && it.track.path === current.path;
     html += '<div class="row' + (on ? ' on' : '') + '" data-i="' + i + '"><span class="car">' + (on ? '▸' : '') +
       '</span><span class="lbl"><span class="txt">' + esc(it.label) + '</span></span><span class="hint">' +
-      (playing ? (audio.paused ? '‖' : '♪') : (!it.hint && it.track ? (isFav(it.track) ? HEART : '') + (isSaved(it.track) ? '✓' : '') : esc(it.hint || ''))) + '</span></div>';
+      (playing ? (audio.paused ? '‖' : '♪') : (!it.hint && it.track ? (isFav(it.track) ? HEART : '') + (isSaved(it.track) ? '✓' : isBad(it.track) ? '✕' : '') : esc(it.hint || ''))) + '</span></div>';
   }
   if (items.length > rows) {
     html += '<div class="sb"><i style="top:' + (v.top / items.length * 100) + '%;height:' + (rows / items.length * 100) + '%"></i></div>';
@@ -906,7 +960,7 @@ function renderNow() {
   vbody.innerHTML =
     '<div class="np"><div class="np-meta"><span>ТРЕК ' + (qi + 1) + ' / ' + queue.length + '</span><span>' + esc(current.folder || queueName) + '</span></div>' +
     '<div class="np-mid"><div class="np-artist">' + (isFav(current) ? HEART + ' ' : '') + esc(p.artist) + '</div><div class="np-title">' + esc(p.title) + '</div>' +
-    (current.err ? '<div class="np-err">НЕ ИГРАЕТ — ' + esc(current.err) + (current.status ? '<br>' + esc(current.status) : '') + '</div>' : '') + '</div>' +
+    (current.gaveUp ? '<div class="np-err">' + esc(current.status) + '<br>' + esc(current.err) + '</div>' : '') + '</div>' +
     '<div class="np-actions"><button type="button" class="vbtn" id="npAct"></button></div>' +
     '<div class="np-bar">' + '<i></i>'.repeat(SEGS) + '</div>' +
     '<div class="np-time"><span id="npEl">00:00</span><span id="npRem">-00:00</span></div></div>';
@@ -966,6 +1020,11 @@ function wireAct(b) {
 }
 function updateNow() {
   if (cur().kind !== 'now' || !current || !segEls) return;
+  if (current.retrying || (current.mode && !current.started && !audio.currentTime && !current.blobP && !current.gaveUp && audio.readyState < 2)) {
+    npEl.textContent = '··:··'; npEl.classList.remove('scrub'); npRem.textContent = 'ЗАГРУЗКА';
+    segEls.forEach(s => s.classList.remove('on'));
+    return;
+  }
   if (current.blobP && !current.blobUrl) {          // whole-track download in progress
     const pr = current.progress || 0, litDl = Math.round(pr * SEGS);
     npEl.textContent = Math.round(pr * 100) + '%';
