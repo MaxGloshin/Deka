@@ -382,9 +382,16 @@ const blobs = new Set();
 function linkFresh(t) { return !!t.file && Date.now() - t.fileAt < LINK_TTL; }
 function getLink(t) { return linkFresh(t) ? t.file : freshLink(t); }
 /* Fetches a whole track as a Blob, reporting progress 0..1. */
+const STALL_MS = 20000;   // no bytes at all for this long = the connection is dead (not just slow)
 async function fetchTrackBlob(t, onProgress) {
+  const ctl = new AbortController();
+  t.blobCtl = ctl;
+  let stall = 0;
+  const kick = () => { clearTimeout(stall); stall = setTimeout(() => ctl.abort(), STALL_MS); };
+  kick();
+  try {
   const href = await getLink(t);
-  const r = await fetch(href, { referrerPolicy: 'no-referrer' });
+  const r = await fetch(href, { referrerPolicy: 'no-referrer', signal: ctl.signal });
   if (!r.ok) { const e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
   const total = +r.headers.get('content-length') || t.size || 0;
   const type = t.mime || 'audio/mpeg';
@@ -394,13 +401,17 @@ async function fetchTrackBlob(t, onProgress) {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      parts.push(value); got += value.length;
+      parts.push(value); got += value.length; kick();
       onProgress(Math.min(1, got / total));
     }
     return new Blob(parts, { type });
   }
   const b = await r.blob();
   return /^audio\//.test(b.type) ? b : new Blob([b], { type });
+  } catch (e) {
+    if (ctl.signal.aborted) { const a = new Error('нет связи'); a.stalled = true; throw a; }
+    throw e;
+  } finally { clearTimeout(stall); if (t.blobCtl === ctl) t.blobCtl = null; }
 }
 /* Playback copy in memory (the "ЦЕЛИКОМ" method); play and prefetch share one download. */
 function loadBlob(t) {
@@ -414,7 +425,8 @@ function loadBlob(t) {
     return t.blobUrl;
   })();
   t.blobP = p;
-  p.then(() => { t.blobP = null; }, () => { t.blobP = null; });
+  const done = () => { if (t.blobP === p) t.blobP = null; };
+  p.then(done, done);
   return p;
 }
 function freeBlobs(keep) {
@@ -547,16 +559,41 @@ function attemptCascade(t) {
   };
   tryNext();
 }
-function playAt(i) {
+function playAt(i, startAt) {
   if (!queue.length) return;
   clearTimeout(retryTimer);
   qi = ((i % queue.length) + queue.length) % queue.length;
   const t = current = queue[qi];
-  t.err = ''; t.status = ''; t.tries = 0;
+  t.err = ''; t.status = ''; t.tries = 0; t.started = false;
+  t.startAt = startAt || 0; t.lastPos = startAt || 0;
   freeBlobs([t, queue[qi + 1]]);
   attemptPlay(t);
   updateMeta(); setAnn(); render();
 }
+let lastRecover = 0;
+function trackIsStuck(t) {
+  if (!t) return false;
+  if (t.err || t.status) return true;                                             // failed / waiting to retry
+  if (t.blobP && !t.blobUrl && !(t.progress > 0)) return true;                    // whole-track download hanging at 0%
+  if (audio.error) return true;
+  return false;
+}
+function resumeAfterDrop(why) {
+  const t = current;
+  if (!t || Date.now() - lastRecover < 2500) return;
+  lastRecover = Date.now();
+  if (t.blobCtl) t.blobCtl.abort();
+  t.blobP = null;
+  invalidateLinks();
+  playAt(qi, t.lastPos || 0);   // same track, same place, fresh link
+}
+function maybeRecover(why) {
+  if (current && trackIsStuck(current)) resumeAfterDrop(why);
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') maybeRecover('visible'); });
+document.addEventListener('resume', () => maybeRecover('resume'));
+window.addEventListener('online', () => maybeRecover('online'));
+window.addEventListener('pageshow', e => { if (e.persisted) maybeRecover('pageshow'); });
 function prefetchNext() {
   const n = queue[qi + 1] || (settings.repeat === 'all' ? queue[0] : null);
   if (!n || n === current || isSaved(n)) return;
@@ -564,6 +601,10 @@ function prefetchNext() {
   else if (!(n.file && Date.now() - n.fileAt < LINK_TTL / 2)) freshLink(n).catch(() => {});
 }
 /* Stay on the track: retry with a fresh link a couple of times, then wait for the user. */
+function invalidateLinks() {
+  cache.clear();
+  queue.forEach(x => { x.file = null; x.fileAt = 0; });
+}
 function trackFailed(t, errors) {
   if (current !== t) return;
   pendingFail = null;
@@ -574,7 +615,7 @@ function trackFailed(t, errors) {
   if (t.tries <= RETRY_DELAYS.length) {
     const d = RETRY_DELAYS[t.tries - 1];
     t.status = 'ПОПРОБУЮ СНОВА ЧЕРЕЗ ' + d / 1000 + ' С';
-    t.file = null;   // ask the Disk for a new link next time
+    invalidateLinks();   // ask the Disk for new links next time
     retryTimer = setTimeout(() => { if (current === t) { t.status = 'ПРОБУЮ СНОВА…'; render(); attemptPlay(t); } }, d);
   } else {
     t.status = 'НЕ ГРУЗИТСЯ. ▸ — ЕЩЁ РАЗ, ▸▸ — СЛЕДУЮЩИЙ';
@@ -609,13 +650,16 @@ audio.addEventListener('ended', () => {
   else { setAnn(); render(); }
 });
 audio.addEventListener('error', () => {
-  if (!current || audio.src === SILENT || !pendingFail) return;
+  if (!current || audio.src === SILENT) return;
+  if (current.started && !pendingFail) { resumeAfterDrop('error'); return; }
+  if (!pendingFail) return;
   const me = audio.error, f = pendingFail;
   pendingFail = null;
   f('код ' + (me ? me.code : '?') + (me && me.message ? ' ' + me.message.slice(0, 70) : ''));
 });
 audio.addEventListener('playing', () => {
   if (!current) return;
+  current.started = true; pendingFail = null;
   clearTimeout(retryTimer);
   if (current.err || current.status) { current.err = ''; current.status = ''; render(); }
   if (MODES.includes(current.mode) && mode !== current.mode) { mode = current.mode; store.set('mode', mode); }
@@ -627,9 +671,13 @@ audio.addEventListener('playing', () => {
   setAnn(); updatePosition();
 }));
 audio.addEventListener('waiting', () => { buffering = true; setAnn(); });
-audio.addEventListener('loadedmetadata', () => { updateNow(); updatePosition(); });
+audio.addEventListener('loadedmetadata', () => {
+  if (current && current.startAt) { try { audio.currentTime = current.startAt; } catch (e) {} current.startAt = 0; }
+  updateNow(); updatePosition();
+});
 audio.addEventListener('seeked', updatePosition);
 audio.addEventListener('timeupdate', () => {
+  if (current && current.started && audio.currentTime > 0) current.lastPos = audio.currentTime;
   updateNow();
 });
 
@@ -782,7 +830,7 @@ function settingsView() {
         clearArm = false; clearSaved().then(render);
       } },
       { label: 'Обновить списки', hint: '', go: () => { cache.clear(); listFolder('/').catch(() => {}); } },
-      { label: 'Версия', hint: 'V23', go: () => {} }
+      { label: 'Версия', hint: 'V24', go: () => {} }
     ]
   };
 }
