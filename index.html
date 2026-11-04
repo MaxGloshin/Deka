@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -10,26 +10,51 @@
 <meta name="description" content="VibePod — музыкальный плеер для публичных папок Яндекс Диска с избранным и сохранением треков для прослушивания без интернета">
 <meta name="theme-color" content="#1b1e22">
 <meta name="referrer" content="no-referrer">
-<!-- ОСТАВЬ СВОЮ СТРОКУ <link rel="apple-touch-icon" href="data:image/png;base64,..."> БЕЗ ИЗМЕНЕНИЙ -->
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" type="image/png" href="icon-192.png">
 <link rel="manifest" href="manifest.webmanifest">
 <title>VibePod</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Jura:wght@500;600;700&family=Unbounded:wght@700;800&display=swap">
+<script>
+(() => {
+  let mode = 'system';
+  try { mode = JSON.parse(localStorage.getItem('deka.theme')) || 'system'; } catch (_) {}
+  if (!['system', 'light', 'dark'].includes(mode)) mode = 'system';
+  const dark = mode === 'dark' || (mode === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  document.querySelector('meta[name="theme-color"]').content = dark ? '#17181b' : '#f5f5f3';
+})();
+</script>
 <style>
-/* Layout: one hardware faceplate. Glowing VFD window on top, four transport keys, then a 24-detent selector knob. */
+/* VibePod: LCD-style display and stationary Click Wheel; 24 gesture steps per turn. */
 :root{
   --row:34px; --rowf:17px;   /* list row height and text size; larger on a computer screen */
   --dw:100vw; --dh:100vh;   /* the deck's own width/height; swapped by script when the phone is turned */
-  --room:#0b0c0e;
-  --plate:#1b1e22; --plate-hi:#262a30; --plate-lo:#131518;
-  --silk:#dfe3e8; --silk-dim:#aab1ba; --engrave:#7d858f; --engrave-dim:#4b5159;
-  --glass:#04100e;
-  --glow:#74f2d9; --dim:rgba(116,242,217,.42); --ghost:rgba(116,242,217,.11);
-  --halo:0 0 1px rgba(116,242,217,.9),0 0 9px rgba(116,242,217,.45);
+  --room:#e1e3e6;
+  --plate:#f5f5f3; --plate-hi:#ffffff; --plate-lo:#e8e8e6;
+  --silk:#20252b; --silk-dim:#4d5660; --engrave:#535b65; --engrave-dim:#69727b;
+  --glass:#eef2f4; --glass-hi:#ffffff; --glow:#145dba; --dim:#455565; --ghost:#d4dce3;
+  --halo:none; --selected:#1763bd; --selected-text:#ffffff; --error:#b32c26;
+  --wheel-bg:#e4e5e4; --wheel-border:#cbcdcc; --wheel-text:#62696e;
+  --wheel-highlight:rgba(255,255,255,.8); --wheel-press:rgba(0,0,0,.08);
+  --cap-bg:linear-gradient(#fafbf9,#efefec); --button-bg:rgba(20,93,186,.09);
+  --screen-shadow:inset 0 0 0 2px #555b60,inset 0 2px 6px rgba(0,0,0,.12);
   --f-brand:"Unbounded","Arial Black",system-ui,sans-serif;
   --f-vfd:"Jura","Trebuchet MS",system-ui,sans-serif;
   --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+:root[data-theme="dark"]{
+  --room:#0b0c0f; --plate:#17181b; --plate-hi:#25262a; --plate-lo:#101114;
+  --silk:#f1f3f5; --silk-dim:#bec4cc; --engrave:#b0b6be; --engrave-dim:#89919b;
+  --glass:#111a21; --glass-hi:#1e2b35; --glow:#83c8ff; --dim:#c1cbd4; --ghost:#35434e;
+  --selected:#27689d; --selected-text:#ffffff; --error:#ffb0a8;
+  --wheel-bg:#292b2f; --wheel-border:#36393e; --wheel-text:#d4d7dd;
+  --wheel-highlight:rgba(255,255,255,.05); --wheel-press:rgba(255,255,255,.08);
+  --cap-bg:linear-gradient(#25272b,#1c1e21); --button-bg:rgba(131,200,255,.12);
+  --screen-shadow:inset 0 0 0 2px #080b0e,inset 0 2px 6px rgba(0,0,0,.3);
   color-scheme:dark;
 }
 *{box-sizing:border-box}
@@ -62,14 +87,10 @@ body{
 .vfd{
   position:relative;flex:1 1 auto;min-height:170px;display:flex;flex-direction:column;gap:6px;
   padding:10px 12px 9px;border-radius:12px;overflow:hidden;
-  background:radial-gradient(120% 80% at 50% 0%,#0a1c19,var(--glass) 70%);
-  box-shadow:inset 0 0 0 1px #000,inset 0 6px 18px rgba(0,0,0,.85),0 1px 0 rgba(255,255,255,.07);
+  background:linear-gradient(var(--glass-hi),var(--glass));
+  box-shadow:var(--screen-shadow);
   color:var(--glow);font-family:var(--f-vfd);
 }
-.vfd::after{content:"";position:absolute;inset:0;pointer-events:none;
-  background-image:radial-gradient(rgba(0,0,0,.6) .6px,transparent 1px);background-size:3px 3px;opacity:.35}
-.vfd::before{content:"";position:absolute;inset:0;pointer-events:none;z-index:2;
-  background:linear-gradient(160deg,rgba(255,255,255,.06),transparent 32%)}
 .vfd-title.can-back{cursor:pointer;color:var(--glow)}
 .vfd-title.can-back:focus-visible{outline:1px solid var(--glow);outline-offset:2px;border-radius:3px}
 .vfd-title .bk{font-size:15px;line-height:0;margin-right:2px}
@@ -80,9 +101,10 @@ body{
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .vfd-brand{flex:0 0 auto;font-family:var(--f-brand);font-size:10px;font-weight:700;letter-spacing:.14em;color:var(--dim);user-select:none}
 .vfd-body{position:relative;flex:1 1 auto;min-height:0}
-.row{display:flex;align-items:center;gap:6px;height:var(--row);padding-right:12px;cursor:pointer;
+.row{display:flex;align-items:center;gap:6px;height:var(--row);padding:0 8px;cursor:pointer;
   font-weight:600;font-size:var(--rowf);letter-spacing:.04em;text-transform:uppercase;color:var(--dim)}
-.row.on{color:var(--glow);text-shadow:var(--halo)}
+.row.on{color:var(--selected-text);background:var(--selected);border-radius:3px;text-shadow:none}
+.row.on .lbl{-webkit-mask-image:none;mask-image:none}
 .car{flex:0 0 12px;width:12px}
 .lbl{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;
   -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 14px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 14px),transparent)}
@@ -91,7 +113,7 @@ body{
 @keyframes mq{0%,12%{transform:translateX(0)}88%,100%{transform:translateX(var(--shift,0))}}
 .hint{flex:0 0 auto;font-family:var(--f-mono);font-size:12px;letter-spacing:.08em}
 .sb{position:absolute;right:0;top:4px;bottom:4px;width:3px;border-radius:2px;background:var(--ghost)}
-.sb i{position:absolute;left:0;right:0;border-radius:2px;background:var(--glow);box-shadow:0 0 6px var(--glow)}
+.sb i{position:absolute;left:0;right:0;border-radius:2px;background:var(--glow);box-shadow:none}
 .msg{display:flex;flex-direction:column;gap:6px;padding:12px 0 10px;font-size:18px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;text-shadow:var(--halo)}
 .msg small{font-family:var(--f-mono);font-size:11px;font-weight:400;letter-spacing:.04em;text-transform:none;color:var(--dim);text-shadow:none}
 .blink{animation:blink 1s steps(2) infinite}
@@ -108,62 +130,57 @@ body{
   text-wrap:balance;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .np-err{font-family:var(--f-mono);font-size:10.5px;line-height:1.45;letter-spacing:.02em;color:var(--glow);overflow-wrap:anywhere;text-transform:none}
 .np-actions{display:flex;flex-wrap:wrap;gap:8px;flex:0 0 auto}
-.np-actions .vbtn{min-width:15.5em;justify-content:center;display:inline-flex;align-items:center;gap:6px;text-decoration:none;touch-action:manipulation;padding:8px 11px}
-.np-note{font-family:var(--f-mono);font-size:10px;line-height:1.35;letter-spacing:.02em;color:var(--dim)}
-.vbtn.on{background:rgba(116,242,217,.16);border-color:var(--glow);text-shadow:var(--halo)}
+.np-actions .vbtn{min-width:0;max-width:100%;justify-content:center;display:inline-flex;align-items:center;gap:6px;text-decoration:none;touch-action:manipulation;padding:8px 11px}
+.np-note{margin:0;font-family:var(--f-mono);font-size:10px;line-height:1.35;letter-spacing:.02em;color:var(--dim)}
+.vbtn.on{background:var(--button-bg);border-color:var(--glow);text-shadow:var(--halo)}
 .vbtn.off{opacity:.45;pointer-events:none}
 .np-bar{display:grid;grid-template-columns:repeat(32,1fr);gap:2px;height:10px;flex:0 0 auto}
 .np-bar i{background:var(--ghost)}
-.np-bar i.on{background:var(--glow);box-shadow:0 0 6px rgba(116,242,217,.6)}
+.np-bar i.on{background:var(--glow);box-shadow:none}
 .np-time{display:flex;justify-content:space-between;font-family:var(--f-mono);font-size:22px;font-weight:500;font-variant-numeric:tabular-nums;text-shadow:var(--halo)}
 .np-time .scrub{animation:blink .7s steps(2) infinite}
 
 /* folder link editor */
-.edit{display:flex;flex-direction:column;gap:10px;padding-top:8px;font-family:var(--f-mono)}
+.edit{max-height:100%;overflow:auto;touch-action:pan-y;display:flex;flex-direction:column;gap:10px;padding-top:8px;font-family:var(--f-mono)}
 .edit label{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
-.edit input{width:100%;min-width:0;font:500 15px/1.3 var(--f-mono);color:var(--glow);background:rgba(116,242,217,.05);
+.edit input{width:100%;min-width:0;font:500 15px/1.3 var(--f-mono);color:var(--glow);background:var(--button-bg);
   border:1px solid var(--dim);border-radius:6px;padding:10px;-webkit-user-select:text;user-select:text;outline:none}
-.edit input.bad{border-color:#ff8a7a;box-shadow:0 0 0 3px rgba(255,138,122,.18)}
-.edit input:focus{border-color:var(--glow);box-shadow:0 0 0 3px rgba(116,242,217,.15)}
-.edit-err{font-size:11px;line-height:1.4;color:#ff8a7a}
+.edit input.bad{border-color:var(--error);box-shadow:0 0 0 3px rgba(255,138,122,.18)}
+.edit input:focus{border-color:var(--glow);box-shadow:0 0 0 3px var(--button-bg)}
+.edit-err{font-size:11px;line-height:1.4;color:var(--error)}
 .edit-err[hidden]{display:none}
 .edit-row{display:flex;gap:8px;flex-wrap:wrap}
 .vbtn{font:500 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--glow);background:transparent;
   border:1px solid var(--dim);border-radius:5px;padding:9px 12px;cursor:pointer}
-.vbtn.primary{background:rgba(116,242,217,.14);text-shadow:var(--halo)}
-.vbtn:focus-visible{outline:2px solid var(--glow);outline-offset:2px;box-shadow:0 0 0 3px rgba(116,242,217,.2)}
+.vbtn.primary{background:var(--button-bg);text-shadow:var(--halo)}
+.vbtn:focus-visible{outline:2px solid var(--glow);outline-offset:2px;box-shadow:0 0 0 3px var(--button-bg)}
 .edit small{font-size:11px;line-height:1.45;color:var(--dim)}
 
 
 
-/* selector knob */
-.dial-zone{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
-.dial-hint{margin:0;font-family:var(--f-mono);font-size:10px;line-height:1.3;letter-spacing:.06em;text-transform:uppercase;color:var(--engrave);text-align:center}
-.dial{position:relative;width:min(calc(var(--dw) * .78),calc(var(--dh) * .4),340px);max-width:100%;aspect-ratio:1}
-.knob{position:absolute;inset:4%;border-radius:50%;touch-action:none;cursor:grab;filter:drop-shadow(0 12px 16px rgba(0,0,0,.55));transition:transform .12s ease-out}
-.knob:focus-visible{outline:2px solid var(--glow);outline-offset:4px}
-/* pressing an edge tips the knob toward it, like a car-console controller */
-.knob.t-up{transform:perspective(700px) rotateX(9deg)}
-.knob.t-down{transform:perspective(700px) rotateX(-9deg)}
-.knob.t-left{transform:perspective(700px) rotateY(-9deg)}
-.knob.t-right{transform:perspective(700px) rotateY(9deg)}
+/* Stationary matte Click Wheel: gesture geometry is independent of its artwork. */
+.dial-zone{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-width:0}
+.dial-hint{margin:0;max-width:310px;font:10px/1.5 var(--f-mono);color:var(--engrave);text-align:center;text-wrap:balance}
+.dial{position:relative;width:min(calc(var(--dw) * .78),calc(var(--dh) * .4),320px);max-width:100%;aspect-ratio:1}
+.knob{position:absolute;inset:4%;border-radius:50%;touch-action:none;cursor:grab;background:var(--wheel-bg);border:1px solid var(--wheel-border);box-shadow:inset 0 1px 2px var(--wheel-highlight),0 1px 2px rgba(0,0,0,.08)}
 .knob:active{cursor:grabbing}
-.knob-face{position:absolute;inset:0;border-radius:50%;will-change:transform;
-  background:repeating-radial-gradient(circle,rgba(255,255,255,.06) 0 1px,rgba(0,0,0,.05) 1px 2px),radial-gradient(circle,#c3c8cd,#a2a8ae 75%,#90969d);
-  box-shadow:inset 0 0 0 1px rgba(255,255,255,.35),inset 0 -3px 6px rgba(0,0,0,.25)}
-/* uneven spun-metal grain: turns with the knob, so rotation stays visible without any marks */
-.knob-face::before{content:"";position:absolute;inset:0;border-radius:50%;
-  background:conic-gradient(from 0deg,rgba(255,255,255,.12),rgba(0,0,0,.07) 26deg,rgba(255,255,255,.05) 63deg,rgba(0,0,0,.09) 101deg,rgba(255,255,255,.11) 143deg,rgba(0,0,0,.05) 190deg,rgba(255,255,255,.08) 232deg,rgba(0,0,0,.08) 281deg,rgba(0,0,0,.05) 324deg,rgba(255,255,255,.12))}
-.sheen{position:absolute;inset:0;border-radius:50%;pointer-events:none;mix-blend-mode:overlay;
-  background:conic-gradient(from 200deg,transparent,rgba(255,255,255,.6) 40deg,transparent 95deg,rgba(0,0,0,.3) 180deg,transparent 250deg,rgba(255,255,255,.4) 300deg,transparent 345deg)}
-.cap{position:absolute;inset:31%;border-radius:50%;border:0;cursor:pointer;touch-action:manipulation;
-  color:var(--silk-dim);font:500 11px/1 var(--f-mono);letter-spacing:.2em;padding:0 0 0 .2em;
-  background:radial-gradient(circle at 50% 35%,#3c4148,#1c1f23 70%);
-  box-shadow:0 0 0 2px rgba(0,0,0,.55),0 0 0 4px rgba(255,255,255,.14),inset 0 2px 3px rgba(255,255,255,.08),inset 0 -3px 6px rgba(0,0,0,.6)}
-.cap.armed{box-shadow:0 0 0 2px rgba(0,0,0,.55),0 0 0 4px var(--glow),0 0 22px rgba(116,242,217,.6),inset 0 4px 9px rgba(0,0,0,.75)}
-.cap:active{transform:scale(.985);box-shadow:0 0 0 2px rgba(0,0,0,.55),0 0 0 4px rgba(255,255,255,.1),inset 0 4px 9px rgba(0,0,0,.75)}
-.cap:focus-visible{outline:2px solid var(--glow);outline-offset:3px}
-@media (max-height:580px) and (orientation:portrait){.dial{width:min(calc(var(--dw) * .72),calc(var(--dh) * .35),290px)}.dial-hint{font-size:9px}}
+.knob-face{position:absolute;inset:0;border-radius:50%;pointer-events:none;transition:background .12s}
+.knob.t-up .knob-face{background:linear-gradient(180deg,var(--wheel-press),transparent 48%)}
+.knob.t-down .knob-face{background:linear-gradient(0deg,var(--wheel-press),transparent 48%)}
+.knob.t-left .knob-face{background:linear-gradient(90deg,var(--wheel-press),transparent 48%)}
+.knob.t-right .knob-face{background:linear-gradient(270deg,var(--wheel-press),transparent 48%)}
+.wheel-labels{position:absolute;inset:0;pointer-events:none;color:var(--wheel-text);font:700 12px/1 Arial,sans-serif;letter-spacing:.06em}
+.wheel-labels span{position:absolute;display:grid;place-items:center}
+.wheel-labels svg{display:block;width:23px;height:20px;fill:currentColor}
+.wl-menu{top:15%;left:50%;transform:translate(-50%,-50%)}
+.wl-left{left:15%;top:50%;transform:translate(-50%,-50%)}
+.wl-right{left:85%;top:50%;transform:translate(-50%,-50%)}
+.wl-play{left:50%;top:85%;transform:translate(-50%,-50%)}
+.cap{position:absolute;inset:31%;border-radius:50%;border:1px solid var(--wheel-border);cursor:pointer;touch-action:manipulation;padding:0;background:var(--cap-bg);box-shadow:inset 0 1px 2px var(--wheel-highlight),0 1px 2px rgba(0,0,0,.09);transition:box-shadow .12s,transform .12s}
+.cap:active{transform:scale(.98);box-shadow:inset 0 2px 5px rgba(0,0,0,.15)}
+.cap.armed{box-shadow:0 0 0 3px var(--glow),inset 0 1px 3px rgba(0,0,0,.15)}
+.cap:focus-visible,.knob:focus-visible{outline:3px solid var(--glow);outline-offset:4px}
+@media (max-height:580px) and (orientation:portrait){.dial{width:min(calc(var(--dw) * .68),calc(var(--dh) * .32),270px)}.dial-hint{font-size:9px}}
 
 /* Landscape: the deck lies on its side - display fills the left, the wheel sits on the right */
 @media (orientation:landscape){
@@ -189,7 +206,12 @@ body{
   .np-actions .vbtn{font-size:13px;padding:10px 14px}
   .np-bar{height:14px}
 }
-@media (prefers-reduced-motion:reduce){.txt.mq,.blink,.np-time .scrub{animation:none}}
+@media (max-height:440px){
+  .deck{gap:12px}.np{gap:4px}.np-mid{gap:3px}.np-note{font-size:9px}
+  .np-title{-webkit-line-clamp:2;font-size:22px}.np-time{font-size:20px}
+  .np-actions .vbtn{padding:7px 9px}.vfd{padding:9px 10px}
+}
+@media (prefers-reduced-motion:reduce){.txt.mq,.blink,.np-time .scrub{animation:none}.knob-face,.cap{transition:none}}
 </style>
 </head>
 <body>
@@ -204,9 +226,14 @@ body{
 
   <div class="dial-zone">
     <div class="dial">
-      <div class="knob" id="knob" role="slider" aria-label="Колесо управления: вращение — выбор, края: сверху — назад, снизу — пуск и пауза, слева и справа — переключение треков" aria-describedby="dialHint" tabindex="0">
+      <div class="knob" id="knob" role="group" aria-label="Колесо управления: вращение — выбор, края: сверху — назад, снизу — пуск и пауза, слева и справа — переключение треков" aria-describedby="dialHint" tabindex="0">
         <div class="knob-face" id="knobFace"></div>
-        <div class="sheen"></div>
+        <div class="wheel-labels" aria-hidden="true">
+          <span class="wl-menu">MENU</span>
+          <span class="wl-left"><svg viewBox="0 0 24 20"><path d="M3 3h3v14H3zM17 3v14L6 10zM24 3v14L13 10z"/></svg></span>
+          <span class="wl-right"><svg viewBox="0 0 24 20"><path d="M18 3h3v14h-3zM7 3l11 7-11 7zM0 3l11 7L0 17z"/></svg></span>
+          <span class="wl-play"><svg viewBox="0 0 24 20"><path d="M1 3l10 7-10 7zM14 3h3v14h-3zM20 3h3v14h-3z"/></svg></span>
+        </div>
         <button class="cap" id="cap" type="button" aria-label="Центр: открыть или пауза; удержание — в избранное" aria-describedby="dialHint"></button>
       </div>
     </div>
@@ -225,7 +252,7 @@ const STEP = 15;          // degrees per detent, 24 detents per turn
 const rowH = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row')) || 34;           // list row height in px
 const SEGS = 32;          // progress segments
 const LINK_TTL = 25 * 60e3;
-// ОСТАВЬ СВОЮ СТРОКУ const SILENT = 'data:audio/wav;base64,...'; БЕЗ ИЗМЕНЕНИЙ
+const SILENT = 'data:audio/wav;base64,UklGRvQHAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YdAHAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
 const ART = (document.querySelector('link[rel="apple-touch-icon"]') || {}).href || '';
 
 /* ---------- storage ---------- */
@@ -239,6 +266,23 @@ const settings = {
   repeat: store.get('repeat', 'all'),
   key: store.get('key', DEFAULT_KEY)
 };
+
+
+/* ---------- appearance: a preference change never recreates audio or the view ---------- */
+let themeMode = store.get('theme', 'system');
+if (!['system', 'light', 'dark'].includes(themeMode)) themeMode = 'system';
+const systemTheme = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+function applyTheme() {
+  const effective = themeMode === 'system' ? (systemTheme && systemTheme.matches ? 'dark' : 'light') : themeMode;
+  document.documentElement.dataset.theme = effective;
+  document.querySelector('meta[name="theme-color"]').content = effective === 'dark' ? '#17181b' : '#f5f5f3';
+}
+const themeChanged = () => { if (themeMode === 'system') applyTheme(); };
+if (systemTheme) {
+  if (systemTheme.addEventListener) systemTheme.addEventListener('change', themeChanged);
+  else if (systemTheme.addListener) systemTheme.addListener(themeChanged);
+}
+applyTheme();
 
 /* ---------- favourites: kept in this browser only, so every listener has their own ---------- */
 const HEART = '♥︎';
@@ -762,7 +806,7 @@ function updateMeta() {
   try {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: p.title, artist: p.artist, album: current.folder || 'VibePod',
-      artwork: [{ src: ART, sizes: '360x360', type: 'image/png' }]
+      artwork: [{ src: ART, sizes: '192x192', type: 'image/png' }]
     });
   } catch (e) {}
 }
@@ -902,6 +946,7 @@ function settingsView() {
   return {
     kind: 'list', title: 'НАСТРОЙКИ',
     build: () => [
+      { label: 'Тема', hint: { system: 'СИСТЕМНАЯ', light: 'СВЕТЛАЯ', dark: 'ТЁМНАЯ' }[themeMode], go: () => { themeMode = { system: 'light', light: 'dark', dark: 'system' }[themeMode]; store.set('theme', themeMode); applyTheme(); render(); } },
       { label: 'Щелчки колеса', hint: settings.clicks ? 'ВКЛ' : 'ВЫКЛ', go: () => { settings.clicks = !settings.clicks; store.set('clicks2', settings.clicks); render(); if (settings.clicks) { ensureAudioCtx(); tick(true); } } },
       { label: 'Повтор', hint: rep[settings.repeat], go: () => { settings.repeat = { all: 'one', one: 'off', off: 'all' }[settings.repeat]; store.set('repeat', settings.repeat); setAnn(); render(); } },
       { label: 'Папка на Диске', hint: '›', go: () => push(editView()) },
@@ -912,7 +957,7 @@ function settingsView() {
         clearArm = false; clearSaved().then(render);
       } },
       { label: 'Обновить списки', hint: '', go: () => { cache.clear(); listFolder('/').catch(() => {}); } },
-      { label: 'Версия', hint: 'V25', go: () => {} }
+      { label: 'Версия', hint: 'V26', go: () => {} }
     ]
   };
 }
@@ -1155,12 +1200,12 @@ function angleOf(e) {
 }
 function turn(d) {
   rot += d; acc += d;
-  face.style.transform = 'rotate(' + rot.toFixed(2) + 'deg)';
+  // Click Wheel labels and face remain stationary; acc still tracks the gesture.
   while (acc >= STEP) { acc -= STEP; step(1); }
   while (acc <= -STEP) { acc += STEP; step(-1); }
 }
 knob.addEventListener('pointerdown', e => {
-  if (e.target === cap) return;
+  if (cap.contains(e.target)) return;
   unlock();
   dragId = e.pointerId;
   try { knob.setPointerCapture(e.pointerId); } catch (err) {}
@@ -1254,7 +1299,7 @@ document.addEventListener('pointerdown', unlock, { capture: true, passive: true 
 vtitle.addEventListener('click', () => { if (stack.length > 1) { unlock(); tick(true); back(); } });
 vtitle.addEventListener('keydown', e => {
   if (stack.length > 1 && (e.key === 'Enter' || e.key === ' ')) {
-    e.preventDefault(); unlock(); tick(true); back();
+    e.preventDefault(); e.stopPropagation(); unlock(); tick(true); back();
   }
 });
 // swipe right across the display = back
@@ -1271,7 +1316,7 @@ vfdEl.addEventListener('pointerup', e => {
 document.addEventListener('touchstart', () => {}, { passive: true });   // enables :active on iOS
 document.addEventListener('keydown', e => {
   const tag = e.target.tagName;
-  if (tag === 'INPUT') return;
+  if (e.defaultPrevented || tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
   const k = e.key;
   if (k === 'ArrowDown') { turn(STEP); e.preventDefault(); }
   else if (k === 'ArrowUp') { turn(-STEP); e.preventDefault(); }
