@@ -24,6 +24,9 @@
   if (!['system', 'light', 'dark'].includes(mode)) mode = 'system';
   const dark = mode === 'dark' || (mode === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  let accent = 'blue';
+  try { accent = JSON.parse(localStorage.getItem('deka.accent')) || 'blue'; } catch (_) {}
+  document.documentElement.dataset.accent = ['blue','mint','violet','rose','amber','graphite'].includes(accent) ? accent : 'blue';
   document.querySelector('meta[name="theme-color"]').content = dark ? '#17181b' : '#f5f5f3';
 })();
 </script>
@@ -73,7 +76,6 @@ body{
   display:flex;flex-direction:column;gap:14px;
   padding:calc(env(safe-area-inset-top,0px) + 14px) 16px calc(env(safe-area-inset-bottom,0px) + 16px);
   background:
-    repeating-linear-gradient(90deg,rgba(255,255,255,.014) 0 1px,transparent 1px 3px),
     linear-gradient(180deg,var(--plate-hi),var(--plate) 45%,var(--plate-lo));
 }
 @media (min-width:560px) and (min-height:600px){
@@ -131,7 +133,6 @@ body{
 .np-err{font-family:var(--f-mono);font-size:10.5px;line-height:1.45;letter-spacing:.02em;color:var(--glow);overflow-wrap:anywhere;text-transform:none}
 .np-actions{display:flex;flex-wrap:wrap;gap:8px;flex:0 0 auto}
 .np-actions .vbtn{min-width:0;max-width:100%;justify-content:center;display:inline-flex;align-items:center;gap:6px;text-decoration:none;touch-action:manipulation;padding:8px 11px}
-.np-note{margin:0;font-family:var(--f-mono);font-size:10px;line-height:1.35;letter-spacing:.02em;color:var(--dim)}
 .vbtn.on{background:var(--button-bg);border-color:var(--glow);text-shadow:var(--halo)}
 .vbtn.off{opacity:.45;pointer-events:none}
 .np-bar{display:grid;grid-template-columns:repeat(32,1fr);gap:2px;height:10px;flex:0 0 auto}
@@ -160,7 +161,6 @@ body{
 
 /* Stationary matte Click Wheel: gesture geometry is independent of its artwork. */
 .dial-zone{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-width:0}
-.dial-hint{margin:0;max-width:310px;font:10px/1.5 var(--f-mono);color:var(--engrave);text-align:center;text-wrap:balance}
 .dial{position:relative;width:min(calc(var(--dw) * .78),calc(var(--dh) * .4),320px);max-width:100%;aspect-ratio:1}
 .knob{position:absolute;inset:4%;border-radius:50%;touch-action:none;cursor:grab;background:var(--wheel-bg);border:1px solid var(--wheel-border);box-shadow:inset 0 1px 2px var(--wheel-highlight),0 1px 2px rgba(0,0,0,.08)}
 .knob:active{cursor:grabbing}
@@ -180,7 +180,7 @@ body{
 .cap:active{transform:scale(.98);box-shadow:inset 0 2px 5px rgba(0,0,0,.15)}
 .cap.armed{box-shadow:0 0 0 3px var(--glow),inset 0 1px 3px rgba(0,0,0,.15)}
 .cap:focus-visible,.knob:focus-visible{outline:3px solid var(--glow);outline-offset:4px}
-@media (max-height:580px) and (orientation:portrait){.dial{width:min(calc(var(--dw) * .68),calc(var(--dh) * .32),270px)}.dial-hint{font-size:9px}}
+@media (max-height:580px) and (orientation:portrait){.dial{width:min(calc(var(--dw) * .68),calc(var(--dh) * .32),270px)}}
 
 /* Landscape: the deck lies on its side - display fills the left, the wheel sits on the right */
 @media (orientation:landscape){
@@ -189,7 +189,6 @@ body{
   .vfd{flex:1 1 auto;min-width:0;min-height:0}
   .dial-zone{padding-inline:clamp(0px,1vw,16px)}
   .dial{width:min(calc(var(--dh) * .68),calc(var(--dw) * .38),420px)}
-  .dial-hint{max-width:260px}
   .np-artist{font-size:clamp(15px,calc(var(--dh) * .026),22px)}
   .np-title{font-size:clamp(21px,calc(var(--dh) * .056),46px)}
   .np-time{font-size:clamp(22px,calc(var(--dh) * .038),34px)}
@@ -207,11 +206,28 @@ body{
   .np-bar{height:14px}
 }
 @media (max-height:440px){
-  .deck{gap:12px}.np{gap:4px}.np-mid{gap:3px}.np-note{font-size:9px}
+  .deck{gap:12px}.np{gap:4px}.np-mid{gap:3px}
   .np-title{-webkit-line-clamp:2;font-size:22px}.np-time{font-size:20px}
   .np-actions .vbtn{padding:7px 9px}.vfd{padding:9px 10px}
 }
 @media (prefers-reduced-motion:reduce){.txt.mq,.blink,.np-time .scrub{animation:none}.knob-face,.cap{transition:none}}
+
+/* Accent colours retain white selection text in either appearance. */
+:root[data-accent="mint"]{--glow:#17664f;--selected:#206b53;--button-bg:rgba(32,107,83,.1)}
+:root[data-theme="dark"][data-accent="mint"]{--glow:#80dec0;--button-bg:rgba(32,107,83,.25)}
+:root[data-accent="violet"]{--glow:#7041ad;--selected:#7041ad;--button-bg:rgba(112,65,173,.1)}
+:root[data-theme="dark"][data-accent="violet"]{--glow:#cfb2ff;--button-bg:rgba(112,65,173,.25)}
+:root[data-accent="rose"]{--glow:#a32c64;--selected:#a32c64;--button-bg:rgba(163,44,100,.1)}
+:root[data-theme="dark"][data-accent="rose"]{--glow:#ffb0d4;--button-bg:rgba(163,44,100,.25)}
+:root[data-accent="amber"]{--glow:#98460d;--selected:#98460d;--button-bg:rgba(152,70,13,.1)}
+:root[data-theme="dark"][data-accent="amber"]{--glow:#ffd095;--button-bg:rgba(152,70,13,.25)}
+:root[data-accent="graphite"]{--glow:#475569;--selected:#475569;--button-bg:rgba(71,85,105,.1)}
+:root[data-theme="dark"][data-accent="graphite"]{--glow:#d0d9e5;--button-bg:rgba(71,85,105,.25)}
+.color-chip{flex:0 0 11px;width:11px;height:11px;border-radius:50%;box-shadow:0 0 0 1px rgba(255,255,255,.6)}
+.vfd.reading{touch-action:pan-y}
+.help{height:100%;overflow:auto;touch-action:pan-y;overscroll-behavior:contain;padding:2px 6px 12px 2px;color:var(--dim);font:14px/1.65 var(--f-vfd);-webkit-user-select:text;user-select:text}
+.help p{margin:0 0 16px}.help p:last-child{margin-bottom:0}
+.help:focus-visible{outline:2px solid var(--glow);outline-offset:-2px}
 </style>
 </head>
 <body>
@@ -226,7 +242,7 @@ body{
 
   <div class="dial-zone">
     <div class="dial">
-      <div class="knob" id="knob" role="group" aria-label="Колесо управления: вращение — выбор, края: сверху — назад, снизу — пуск и пауза, слева и справа — переключение треков" aria-describedby="dialHint" tabindex="0">
+      <div class="knob" id="knob" role="group" aria-label="Колесо управления: вращение — выбор, края: сверху — назад, снизу — пуск и пауза, слева и справа — переключение треков" tabindex="0">
         <div class="knob-face" id="knobFace"></div>
         <div class="wheel-labels" aria-hidden="true">
           <span class="wl-menu">MENU</span>
@@ -234,10 +250,9 @@ body{
           <span class="wl-right"><svg viewBox="0 0 24 20"><path d="M18 3h3v14h-3zM7 3l11 7-11 7zM0 3l11 7L0 17z"/></svg></span>
           <span class="wl-play"><svg viewBox="0 0 24 20"><path d="M1 3l10 7-10 7zM14 3h3v14h-3zM20 3h3v14h-3z"/></svg></span>
         </div>
-        <button class="cap" id="cap" type="button" aria-label="Центр: открыть или пауза; удержание — в избранное" aria-describedby="dialHint"></button>
+        <button class="cap" id="cap" type="button" aria-label="Центр: открыть или пауза; удержание — в избранное"></button>
       </div>
     </div>
-    <p class="dial-hint" id="dialHint">Вращение — выбор · Центр — открыть · Удержание — избранное</p>
   </div>
 </main>
 <audio id="audio" preload="auto" playsinline></audio>
@@ -266,15 +281,33 @@ const settings = {
   repeat: store.get('repeat', 'all'),
   key: store.get('key', DEFAULT_KEY)
 };
+// Each track retains its source even while another library is selected.
+const sourceKey = t => t && typeof t.key === 'string' ? t.key : settings.key;
+const storedFolders = store.get('folders', null);
+let folders = Array.isArray(storedFolders) ? storedFolders.filter((f, i, a) => f && typeof f.key === 'string' && f.key && typeof f.name === 'string' && a.findIndex(x => x && x.key === f.key) === i) : [{ name: 'Моя музыка', key: settings.key || DEFAULT_KEY }];
+if (!folders.some(f => f.key === settings.key)) settings.key = folders.length ? folders[0].key : '';
+function persistFolders() { store.set('folders', folders); store.set('key', settings.key); }
+persistFolders();
 
 
 /* ---------- appearance: a preference change never recreates audio or the view ---------- */
+const ACCENTS = {
+  blue: { name: 'Синий', swatch: '#2374cf' },
+  mint: { name: 'Мятный', swatch: '#26836c' },
+  violet: { name: 'Фиолетовый', swatch: '#8954ce' },
+  rose: { name: 'Розовый', swatch: '#c24984' },
+  amber: { name: 'Янтарный', swatch: '#c67423' },
+  graphite: { name: 'Графитовый', swatch: '#64748b' }
+};
+let accent = store.get('accent', 'blue');
+if (!Object.prototype.hasOwnProperty.call(ACCENTS, accent)) accent = 'blue';
 let themeMode = store.get('theme', 'system');
 if (!['system', 'light', 'dark'].includes(themeMode)) themeMode = 'system';
 const systemTheme = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
 function applyTheme() {
   const effective = themeMode === 'system' ? (systemTheme && systemTheme.matches ? 'dark' : 'light') : themeMode;
   document.documentElement.dataset.theme = effective;
+  document.documentElement.dataset.accent = accent;
   document.querySelector('meta[name="theme-color"]').content = effective === 'dark' ? '#17181b' : '#f5f5f3';
 }
 const themeChanged = () => { if (themeMode === 'system') applyTheme(); };
@@ -287,18 +320,19 @@ applyTheme();
 /* ---------- favourites: kept in this browser only, so every listener has their own ---------- */
 const HEART = '♥︎';
 let favAll = store.get('favs', {}), favVer = 0;
-const favList = () => (favAll && favAll[settings.key]) || [];
-const isFav = t => !!t && favList().some(f => f.p === t.path);
+const favList = (key = settings.key) => (favAll && favAll[key]) || [];
+const isFav = t => !!t && favList(sourceKey(t)).some(f => f.p === t.path);
 function toggleFav(t) {
-  const list = favList().slice();
+  const key = sourceKey(t);
+  const list = favList(key).slice();
   const i = list.findIndex(f => f.p === t.path);
   if (i >= 0) list.splice(i, 1);
   else list.unshift({ p: t.path, n: t.name, f: t.folder || '', m: t.mime || '', s: t.size || 0 });
-  favAll = Object.assign({}, favAll, { [settings.key]: list });
+  favAll = Object.assign({}, favAll, { [key]: list });
   store.set('favs', favAll); favVer++;
   return i < 0;
 }
-const favTracks = () => favList().map(f => ({ name: f.n, path: f.p, dir: false, audio: true, file: null, fileAt: 0, folder: f.f, mime: f.m, size: f.s }));
+const favTracks = () => favList().map(f => ({ key: settings.key, name: f.n, path: f.p, dir: false, audio: true, file: null, fileAt: 0, folder: f.f, mime: f.m, size: f.s }));
 
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
@@ -361,13 +395,14 @@ async function apiJSON(url) {
   }
   return r.json();
 }
-async function listFolder(path) {
-  const ck = settings.key + '|' + path;
+async function listFolder(path, key = settings.key) {
+  if (!key) return [];
+  const ck = key + '|' + path;
   const hit = cache.get(ck);
   if (hit && Date.now() - hit.t < LINK_TTL) return hit.items;
   let raw = [], offset = 0, total = 1;
   while (offset < total) {
-    const u = API + '?public_key=' + encodeURIComponent(settings.key) +
+    const u = API + '?public_key=' + encodeURIComponent(key) +
       (path && path !== '/' ? '&path=' + encodeURIComponent(path) : '') +
       '&limit=200&offset=' + offset + '&sort=name';
     const j = await apiJSON(u);
@@ -378,7 +413,7 @@ async function listFolder(path) {
   }
   const now = Date.now();
   const out = raw.map(it => ({
-    name: it.name, path: it.path, dir: it.type === 'dir',
+    key, name: it.name, path: it.path, dir: it.type === 'dir',
     audio: it.media_type === 'audio' || /\.(mp3|m4a|aac|wav|flac|alac|ogg|opus)$/i.test(it.name || ''),
     file: it.file || null, fileAt: now, folder: parentName(it.path), mime: it.mime_type || '', size: it.size || 0
   })).filter(x => x.dir || x.audio);
@@ -386,12 +421,13 @@ async function listFolder(path) {
   return out;
 }
 async function freshLink(t) {
-  const j = await apiJSON(API + '/download?public_key=' + encodeURIComponent(settings.key) + '&path=' + encodeURIComponent(t.path));
+  const key = sourceKey(t);
+  const j = await apiJSON(API + '/download?public_key=' + encodeURIComponent(key) + '&path=' + encodeURIComponent(t.path));
   t.file = j.href; t.fileAt = Date.now();
   return j.href;
 }
-async function collectAll(onProgress, rootPath) {
-  const root = await listFolder(rootPath || '/');
+async function collectAll(onProgress, rootPath, key = settings.key) {
+  const root = await listFolder(rootPath || '/', key);
   let files = root.filter(x => !x.dir);
   const todo = root.filter(x => x.dir);
   let done = 0, total = todo.length;
@@ -400,7 +436,7 @@ async function collectAll(onProgress, rootPath) {
     while (todo.length) {
       const d = todo.shift();
       try {
-        const items = await listFolder(d.path);
+        const items = await listFolder(d.path, key);
         files = files.concat(items.filter(x => !x.dir));
         items.filter(x => x.dir).forEach(sd => { todo.push(sd); total++; });
       } catch (e) {}
@@ -443,7 +479,7 @@ let attemptId = 0, pendingFail = null, retryTimer = 0;
 const RETRY_DELAYS = [700, 2500, 6000];   // quick retries with a new link: the Disk often serves the file from another server
 const BAD_MS = 30 * 60e3;                  // a track the Disk refused is skipped for 30 minutes, then tried again
 const badUntil = new Map();
-const isBad = t => !!t && (badUntil.get(t.path) || 0) > Date.now();
+const isBad = t => !!t && (badUntil.get(offKey(t)) || 0) > Date.now();
 let corsOK = store.get('corsOK', false);   // the Disk's file server has answered a page request here at least once
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const blobs = new Set();
@@ -526,13 +562,13 @@ const idb = (() => {
   };
 })();
 let savedMeta = store.get('saved', {}) || {}, savedVer = 0, clearArm = false;
-const offKey = t => settings.key + '|' + t.path;
+const offKey = t => sourceKey(t) + '|' + t.path;
 const isSaved = t => !!t && !!savedMeta[offKey(t)];
 const saveMeta = () => { store.set('saved', savedMeta); savedVer++; };
 function savedEntries() { const pre = settings.key + '|'; return Object.keys(savedMeta).filter(k => k.startsWith(pre)).map(k => savedMeta[k]); }
 function savedTracks() {
   return savedEntries().sort((a, b) => b.at - a.at)
-    .map(f => ({ name: f.n, path: f.p, dir: false, audio: true, file: null, fileAt: 0, folder: f.f, mime: f.m, size: f.s }));
+    .map(f => ({ key: settings.key, name: f.n, path: f.p, dir: false, audio: true, file: null, fileAt: 0, folder: f.f, mime: f.m, size: f.s }));
 }
 function savedStats() { const e = savedEntries(); return { n: e.length, mb: Math.round(e.reduce((a, f) => a + (f.s || 0), 0) / 1048576) }; }
 
@@ -569,7 +605,8 @@ function dlRefresh() { updateDl(); }
 async function removeSaved(t) { try { await idb.del(offKey(t)); } catch (e) {} delete savedMeta[offKey(t)]; saveMeta(); }
 async function clearSaved() {
   const pre = settings.key + '|';
-  for (const k of Object.keys(savedMeta)) if (k.startsWith(pre)) { try { await idb.del(k); } catch (e) {} delete savedMeta[k]; }
+  const keys = Object.keys(savedMeta).filter(k => k.startsWith(pre));
+  for (const k of keys) { try { await idb.del(k); } catch (e) {} delete savedMeta[k]; }
   saveMeta();
 }
 // forget entries whose audio the browser no longer holds
@@ -694,7 +731,7 @@ async function prefetchNext() {
       }
       await sleep(1500 * (i + 1));
     }
-    badUntil.set(n.path, Date.now() + BAD_MS);     // refused three times: skip it this time round
+    badUntil.set(offKey(n), Date.now() + BAD_MS);     // refused three times: skip it this time round
   } finally { if (probing === n) probing = null; }
   if (isBad(n) && current && !current.err) prefetchNext();   // check the one after it instead
 }
@@ -718,7 +755,7 @@ function trackFailed(t, errors) {
     return;
   }
   t.retrying = false;
-  badUntil.set(t.path, Date.now() + BAD_MS);
+  badUntil.set(offKey(t), Date.now() + BAD_MS);
   const n = nextPlayable(qi, 1);
   if (n !== -1 && n !== qi) { playAt(n, 0); return; }      // keep the music going
   t.gaveUp = true;
@@ -748,7 +785,7 @@ function prev() {
 }
 function togglePlay() {
   if (!current) { return; }
-  if (current.err) { badUntil.delete(current.path); playAt(qi, current.lastPos || 0); return; }
+  if (current.err) { badUntil.delete(offKey(current)); playAt(qi, current.lastPos || 0); return; }
   if (audio.paused) audio.play().catch(() => {}); else audio.pause();
 }
 function startQueue(files, idx, shuffle, name) {
@@ -777,7 +814,7 @@ audio.addEventListener('error', () => {
 });
 audio.addEventListener('playing', () => {
   if (!current) return;
-  current.started = true; pendingFail = null; current.retrying = false; current.err = ''; badUntil.delete(current.path);
+  current.started = true; pendingFail = null; current.retrying = false; current.err = ''; badUntil.delete(offKey(current));
   clearTimeout(retryTimer);
   if (current.err || current.status) { current.err = ''; current.status = ''; render(); }
   if (MODES.includes(current.mode) && mode !== current.mode) { mode = current.mode; store.set('mode', mode); }
@@ -845,33 +882,34 @@ function mainView() {
   return {
     kind: 'list', title: 'ГЛАВНОЕ',
     build: () => {
-      const it = [
+      const it = settings.key ? [
         { label: 'Исполнители', hint: '›', go: () => push(folderView('/', 'Исполнители')) },
         { label: 'Избранное', hint: favList().length ? String(favList().length) : '›', go: () => push(favView()) },
         { label: 'Скачанные', hint: savedStats().n ? String(savedStats().n) : '›', go: () => push(savedView()) },
-        { label: 'Все исполнители вперемешку', hint: '', go: () => shuffleAll('/', 'Все исполнители') }
-      ];
+        { label: 'Вперемешку', hint: '', go: () => shuffleAll('/', 'Все исполнители') }
+      ] : [];
+      it.push({ label: 'Папки', hint: String(folders.length), go: () => push(sourcesView()) });
       if (current) it.push({ label: 'Сейчас играет', hint: '›', go: () => push(nowView()) });
       it.push({ label: 'Настройки', hint: '›', go: () => push(settingsView()) });
       return it;
     }
   };
 }
-function folderView(path, title) {
-  const v = { kind: 'list', title: title.toUpperCase(), path, loading: true, error: null, data: null };
+function folderView(path, title, key = settings.key) {
+  const v = { key, kind: 'list', title: title.toUpperCase(), path, loading: true, error: null, data: null };
   v.build = () => {
     if (v.loading) return [];
     if (v.error) return [{ label: 'Повторить', hint: '', go: () => loadFolder(v) }];
     const dirs = v.data.filter(x => x.dir), files = v.data.filter(x => !x.dir);
     const it = [];
     if (dirs.length) it.push(path === '/'
-      ? { label: 'Все исполнители вперемешку', hint: '', go: () => shuffleAll('/', 'Все исполнители') }
-      : { label: 'Вперемешку с альбомами', hint: '', go: () => shuffleAll(path, title) });
+      ? { label: 'Все исполнители вперемешку', hint: '', go: () => shuffleAll('/', 'Все исполнители', key) }
+      : { label: 'Вперемешку с альбомами', hint: '', go: () => shuffleAll(path, title, key) });
     if (files.length) {
       it.push({ label: 'Слушать все', hint: String(files.length), go: () => startQueue(files, 0, false, title) });
       it.push({ label: 'Вперемешку', hint: '', go: () => startQueue(files, 0, true, title) });
     }
-    dirs.forEach(d => it.push({ label: d.name, hint: '›', go: () => push(folderView(d.path, d.name)) }));
+    dirs.forEach(d => it.push({ label: d.name, hint: '›', go: () => push(folderView(d.path, d.name, key)) }));
     files.forEach((f, i) => it.push({ label: parseName(f.name, artistOf(f)).title, track: f, hint: '', go: () => startQueue(files, i, false, title) }));
     if (!it.length) { v.error = Object.assign(new Error('ПАПКА ПУСТАЯ'), { custom: true }); return []; }
     return it;
@@ -881,16 +919,16 @@ function folderView(path, title) {
 }
 async function loadFolder(v) {
   v.loading = true; v.error = null; setLoad(true); render();
-  try { v.data = await listFolder(v.path); } catch (e) { v.error = e; }
+  try { v.data = await listFolder(v.path, v.key); } catch (e) { v.error = e; }
   v.loading = false; setLoad(false); render();
 }
-async function shuffleAll(path, title) {
+async function shuffleAll(path, title, key = settings.key) {
   path = path || '/'; title = title || 'Все исполнители';
   const v = { kind: 'list', title: (title + ' вперемешку').toUpperCase(), loading: true, loadMsg: 'СОБИРАЮ ТРЕКИ', error: null,
-    build: () => v.error ? [{ label: 'Повторить', hint: '', go: () => { stack.pop(); shuffleAll(path, title); } }] : [] };
+    build: () => v.error ? [{ label: 'Повторить', hint: '', go: () => { stack.pop(); shuffleAll(path, title, key); } }] : [] };
   push(v); setLoad(true);
   try {
-    const files = await collectAll((d, t) => { v.loadMsg = 'СОБИРАЮ ТРЕКИ ' + d + '/' + t; if (cur() === v) render(); }, path);
+    const files = await collectAll((d, t) => { v.loadMsg = 'СОБИРАЮ ТРЕКИ ' + d + '/' + t; if (cur() === v) render(); }, path, key);
     setLoad(false);
     if (cur() !== v) return;
     if (!files.length) { v.loading = false; v.error = Object.assign(new Error('МУЗЫКИ НЕ НАШЛОСЬ'), { custom: true }); render(); return; }
@@ -907,7 +945,7 @@ function savedView() {
     if (v.ver !== savedVer) { v.tracks = savedTracks(); v.ver = savedVer; }
     const tr = v.tracks;
     if (!tr.length) {
-      v.empty = ['ПОКА ПУСТО', 'Открой трек, добавь в избранное и нажми «Скачать»'];
+      v.empty = ['ПОКА ПУСТО', ''];
       return [{ label: 'К исполнителям', hint: '›', go: () => push(folderView('/', 'Исполнители')) }];
     }
     v.empty = null;
@@ -926,7 +964,7 @@ function favView() {
     if (v.ver !== favVer) { v.tracks = favTracks(); v.ver = favVer; }
     const tr = v.tracks;
     if (!tr.length) {
-      v.empty = ['ПОКА ПУСТО', 'Удерживай центр ручки на треке или нажми «В избранное» на экране плеера'];
+      v.empty = ['ПОКА ПУСТО', ''];
       return [{ label: 'К исполнителям', hint: '›', go: () => push(folderView('/', 'Исполнители')) }];
     }
     v.empty = null;
@@ -947,9 +985,11 @@ function settingsView() {
     kind: 'list', title: 'НАСТРОЙКИ',
     build: () => [
       { label: 'Тема', hint: { system: 'СИСТЕМНАЯ', light: 'СВЕТЛАЯ', dark: 'ТЁМНАЯ' }[themeMode], go: () => { themeMode = { system: 'light', light: 'dark', dark: 'system' }[themeMode]; store.set('theme', themeMode); applyTheme(); render(); } },
+      { label: 'Акцент', hint: ACCENTS[accent].name, go: () => push(accentView()) },
+      { label: 'Руководство', hint: '›', go: () => push(manualView()) },
       { label: 'Щелчки колеса', hint: settings.clicks ? 'ВКЛ' : 'ВЫКЛ', go: () => { settings.clicks = !settings.clicks; store.set('clicks2', settings.clicks); render(); if (settings.clicks) { ensureAudioCtx(); tick(true); } } },
       { label: 'Повтор', hint: rep[settings.repeat], go: () => { settings.repeat = { all: 'one', one: 'off', off: 'all' }[settings.repeat]; store.set('repeat', settings.repeat); setAnn(); render(); } },
-      { label: 'Папка на Диске', hint: '›', go: () => push(editView()) },
+      { label: 'Папки на Диске', hint: String(folders.length), go: () => push(sourcesView()) },
       { label: 'Способ загрузки', hint: MODES.includes(mode) ? MODE_NAMES[mode] : 'АВТО', go: () => { mode = null; store.set('mode', null); render(); } },
       { label: 'Память плеера', hint: savedStats().n + ' ТР · ' + savedStats().mb + ' МБ', go: () => push(savedView()) },
       { label: clearArm ? 'Точно удалить всё?' : 'Очистить память', hint: '', go: () => {
@@ -957,11 +997,88 @@ function settingsView() {
         clearArm = false; clearSaved().then(render);
       } },
       { label: 'Обновить списки', hint: '', go: () => { cache.clear(); listFolder('/').catch(() => {}); } },
-      { label: 'Версия', hint: 'V26', go: () => {} }
+      { label: 'Версия', hint: 'V27', go: () => {} }
     ]
   };
 }
-function editView() { return { kind: 'edit', title: 'ПАПКА НА ДИСКЕ' }; }
+function editView() { return { kind: 'edit', title: 'НОВАЯ ПАПКА' }; }
+function selectSource(key) {
+  if (!folders.some(f => f.key === key)) return;
+  settings.key = key; persistFolders(); favVer++; savedVer++;
+  clearArm = false; delArm = null;
+  stack = [mainView()]; render();
+  push(folderView('/', folders.find(f => f.key === key).name, key));
+}
+function sourcesView() {
+  return { kind: 'list', title: 'ПАПКИ', build: () => [
+    ...folders.map(f => ({ label: f.name, hint: f.key === settings.key ? '✓' : '›', go: () => push(sourceActions(f)) })),
+    { label: 'Добавить папку', hint: '+', go: () => push(editView()) }
+  ] };
+}
+function sourceActions(f) {
+  return { kind: 'list', title: f.name.toUpperCase(), build: () => [
+    { label: 'Открыть', hint: f.key === settings.key ? '✓' : '›', go: () => selectSource(f.key) },
+    { label: 'Удалить ссылку', hint: '', go: () => push({ kind: 'list', title: 'УДАЛИТЬ ССЫЛКУ?', build: () => [
+      { label: 'Удалить ссылку', hint: '', go: () => {
+        folders = folders.filter(x => x.key !== f.key);
+        if (settings.key === f.key) settings.key = folders.length ? folders[0].key : '';
+        persistFolders(); favVer++; savedVer++; clearArm = false; delArm = null;
+        // Removing a shortcut never deletes saved music or favourites.
+        stack = [mainView()]; push(sourcesView());
+      } },
+      { label: 'Отмена', hint: '', go: back }
+    ] }) }
+  ] };
+}
+function accentView() {
+  return { kind: 'list', title: 'АКЦЕНТ', build: () => Object.keys(ACCENTS).map(id => ({
+    label: ACCENTS[id].name, accent: id, hint: accent === id ? '✓' : '',
+    go: () => { accent = id; store.set('accent', id); applyTheme(); render(); }
+  })) };
+}
+const GUIDE = [
+  ['Управление', [
+    'Веди пальцем по кругу колеса, чтобы перемещаться по списку. На компьютере работают колесо мыши и стрелки ↑ ↓.',
+    'Нажми на строку или центр колеса, чтобы открыть выбранный пункт. MENU возвращает на один экран назад. Можно нажать заголовок со стрелкой или смахнуть экран вправо.',
+    'Нижняя часть колеса — пуск и пауза. Левая и правая — предыдущий и следующий трек. На клавиатуре: пробел — пауза, ← → — треки, Enter — выбор, Escape — назад.',
+    'На экране трека вращение перематывает по 5 секунд. Удержание центра примерно полсекунды добавляет трек в избранное или убирает его.'
+  ]],
+  ['Музыка и папки', [
+    'Открой «Папки» → «Добавить папку». Вставь публичную ссылку Яндекс Диска и при желании дай ей название. На Диске: открой папку → «Поделиться» → скопируй ссылку.',
+    'Выбери сохранённую папку и нажми «Открыть». В главном меню «Исполнители», «Избранное», «Скачанные» и перемешивание относятся к выбранной папке. Несколько папок сохраняются как отдельные библиотеки.',
+    'Чтобы убрать папку из списка, выбери её → «Удалить ссылку» и подтверди. Избранное и скачанная музыка не стираются: добавь ту же ссылку снова, чтобы увидеть их. Название можно изменить, повторно добавив ту же ссылку с новым именем.',
+    'При переключении папок текущая музыка и её очередь продолжают играть из прежнего источника. Новый трек заменит очередь. Папки и избранное хранятся только в этом браузере.'
+  ]],
+  ['Избранное и скачивание', [
+    'На экране трека нажми «В избранное». Следующее нажатие кнопки «Скачать» сохранит музыку внутри плеера. Удержание этой кнопки переключает избранное.',
+    'В разделе «Избранное» можно скачать весь список. «В очереди», проценты и отметка «В памяти» показывают состояние загрузки.',
+    'Скачивание сохраняет трек в этом браузере, а не в системной папке загрузок. Для прослушивания без сети сначала открой сайт с интернетом, дождись сохранения трека, затем используй раздел «Скачанные».',
+    'Чтобы удалить трек из памяти, нажми «В памяти» и подтверди повторным нажатием. «Очистить память» в настройках удаляет скачанные треки выбранной папки после подтверждения.',
+    'Браузер может удалить локальные данные при очистке или нехватке места. Между устройствами музыка и избранное не синхронизируются.'
+  ]],
+  ['Оформление и воспроизведение', [
+    'В настройках пункт «Тема» переключает системную, светлую и тёмную темы. Системная следует настройке устройства, ручной выбор сохраняется.',
+    'В пункте «Акцент» выбери цвет выделения, кнопок и прогресса. Цвет сохраняется отдельно от темы и работает в обоих режимах.',
+    '«Повтор»: все треки, один трек или выключен. «Вперемешку» запускает выбранный список в случайном порядке. «Щелчки колеса» включают звуковой отклик.',
+    '«Способ загрузки» показывает выбранный плеером способ воспроизведения. Нажатие возвращает автоматический выбор. Управление на экране блокировки зависит от браузера и устройства.'
+  ]],
+  ['Если музыка не играет', [
+    'Проверь интернет и доступность публичной папки. При временной ошибке плеер обновляет ссылку на трек и пробует повторить воспроизведение.',
+    'Если Яндекс Диск ограничил доступ или скачивания, попробуй позже. Некоторые форматы могут не поддерживаться браузером.',
+    'Для обновления списка вернись в главное меню после «Обновить списки» и заново открой папку. При нехватке места удали ненужные скачанные треки.',
+    'Чтобы установить плеер, используй меню браузера: «Установить приложение» или «На экран Домой», если эта возможность доступна. После обновления сайта сначала открой его с интернетом; оформление стартового экрана зависит от браузера.'
+  ]]
+];
+function manualView() {
+  return { kind: 'list', title: 'РУКОВОДСТВО', build: () => GUIDE.map(([title, paragraphs]) => ({
+    label: title, hint: '›', go: () => push({ kind: 'help', title: title.toUpperCase(), paragraphs })
+  })) };
+}
+function renderHelp(v) {
+  vbody.className = 'vfd-body';
+  vbody.innerHTML = '<article class="help" tabindex="0">' + v.paragraphs.map(p => '<p>' + esc(p) + '</p>').join('') + '</article>';
+}
+
 function saveKey() {
   const inp = $('keyInput');
   if (!inp) return;
@@ -979,13 +1096,16 @@ function saveKey() {
     }
     return;
   }
-  settings.key = val; store.set('key', val); cache.clear();
-  inp.blur();
-  stack = [stack[0]]; render(); listFolder('/').catch(() => {});
+  const name = $('folderName').value.trim().slice(0, 60);
+  const existing = folders.find(f => f.key === val);
+  if (existing) { if (name) existing.name = name; }
+  else folders.push({ key: val, name: name || 'Папка ' + (folders.length + 1) });
+  persistFolders(); inp.blur(); selectSource(val);
 }
 
 function render() {
   const v = cur();
+  document.querySelector('.vfd').classList.toggle('reading', v.kind === 'help' || v.kind === 'edit');
   const canBack = stack.length > 1;
   vtitle.classList.toggle('can-back', canBack);
   if (canBack) {
@@ -1000,6 +1120,7 @@ function render() {
   vtitle.innerHTML = (canBack ? '<span class="bk">‹</span> ' : '') + esc(v.title);
   if (v.kind === 'now') return renderNow();
   if (v.kind === 'edit') return renderEdit();
+  if (v.kind === 'help') return renderHelp(v);
   vbody.className = 'vfd-body';
   v.sel = v.sel | 0; v.top = v.top | 0;
   const items = v.items = v.build();
@@ -1024,9 +1145,9 @@ function render() {
   v.top = Math.max(0, Math.min(v.top, Math.max(0, items.length - rows)));
   for (let i = v.top; i < Math.min(items.length, v.top + rows); i++) {
     const it = items[i], on = i === v.sel;
-    const playing = it.track && current && it.track.path === current.path;
+    const playing = it.track && current && offKey(it.track) === offKey(current);
     html += '<div class="row' + (on ? ' on' : '') + '" data-i="' + i + '"><span class="car">' + (on ? '▸' : '') +
-      '</span><span class="lbl"><span class="txt">' + esc(it.label) + '</span></span><span class="hint">' +
+      '</span>' + (it.accent ? '<span class="color-chip" style="background:' + ACCENTS[it.accent].swatch + '" aria-hidden="true"></span>' : '') + '<span class="lbl"><span class="txt">' + esc(it.label) + '</span></span><span class="hint">' +
       (playing ? (audio.paused ? '‖' : '♪') : (!it.hint && it.track ? (isFav(it.track) ? HEART : '') + (isSaved(it.track) ? '✓' : isBad(it.track) ? '✕' : '') : esc(it.hint || ''))) + '</span></div>';
   }
   if (items.length > rows) {
@@ -1058,7 +1179,7 @@ function renderNow() {
     '<div class="np"><div class="np-meta"><span>ТРЕК ' + (qi + 1) + ' / ' + queue.length + '</span><span>' + esc(current.folder || queueName) + '</span></div>' +
     '<div class="np-mid"><div class="np-artist">' + (isFav(current) ? HEART + ' ' : '') + esc(p.artist) + '</div><div class="np-title">' + esc(p.title) + '</div>' +
     (current.gaveUp ? '<div class="np-err">' + esc(current.status) + '<br>' + esc(current.err) + '</div>' : '') + '</div>' +
-    '<div class="np-actions"><button type="button" class="vbtn" id="npAct" aria-describedby="npNote"></button></div><div class="np-note" id="npNote">Трек сохраняется в этом браузере для прослушивания без интернета</div>' +
+    '<div class="np-actions"><button type="button" class="vbtn" id="npAct"></button></div>' +
     '<div class="np-bar">' + '<i></i>'.repeat(SEGS) + '</div>' +
     '<div class="np-time"><span id="npEl">00:00</span><span id="npRem">-00:00</span></div></div>';
   segEls = vbody.querySelectorAll('.np-bar i'); npEl = $('npEl'); npRem = $('npRem');
@@ -1141,25 +1262,19 @@ function renderEdit() {
   if ($('keyInput')) return;
   vbody.className = 'vfd-body';
   vbody.innerHTML =
-    '<form class="edit" id="editForm" novalidate><label for="keyInput">Публичная ссылка на папку</label>' +
-    '<input id="keyInput" type="url" inputmode="url" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-invalid="false" aria-describedby="keyErr keyHelp">' +
+    '<form class="edit" id="editForm" novalidate><label for="folderName">Название</label>' +
+    '<input id="folderName" type="text" maxlength="60" autocomplete="off" placeholder="Необязательно">' +
+    '<label for="keyInput">Ссылка Яндекс Диска</label>' +
+    '<input id="keyInput" type="url" inputmode="url" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-invalid="false" aria-describedby="keyErr">' +
     '<div class="edit-err" id="keyErr" role="alert" hidden></div>' +
-    '<div class="edit-row"><button class="vbtn primary" type="submit">Сохранить</button><button class="vbtn" type="button" id="resetKey">Стандартная</button></div>' +
-    '<small id="keyHelp">На Диске: папка → Поделиться → Скопировать ссылку. Подойдёт любая публичная папка с музыкой.</small></form>';
-  $('keyInput').value = settings.key;
+    '<div class="edit-row"><button class="vbtn primary" type="submit">Добавить</button><button class="vbtn" type="button" id="resetKey">Стандартная</button></div></form>';
   $('keyInput').addEventListener('input', () => {
-    const inp = $('keyInput'), errEl = $('keyErr');
-    if (inp) { inp.classList.remove('bad'); inp.setAttribute('aria-invalid', 'false'); }
-    if (errEl) { errEl.textContent = ''; errEl.hidden = true; }
+    $('keyInput').classList.remove('bad'); $('keyInput').setAttribute('aria-invalid', 'false');
+    $('keyErr').textContent = ''; $('keyErr').hidden = true;
   });
   $('editForm').addEventListener('submit', e => { e.preventDefault(); tick(true); saveKey(); });
-  $('resetKey').addEventListener('click', () => {
-    tick(true);
-    const inp = $('keyInput'), errEl = $('keyErr');
-    if (inp) { inp.value = DEFAULT_KEY; inp.classList.remove('bad'); inp.setAttribute('aria-invalid', 'false'); }
-    if (errEl) { errEl.textContent = ''; errEl.hidden = true; }
-  });
-  }
+  $('resetKey').addEventListener('click', () => { tick(true); $('keyInput').value = DEFAULT_KEY; });
+}
 
 /* ---------- controls ---------- */
 let scrubT = null, scrubTimer = 0;
@@ -1182,6 +1297,9 @@ function step(dir) {
     v.sel = n; tick(false); render();
   } else if (v.kind === 'now') {
     if (current && scrub(dir)) tick(false);
+  } else if (v.kind === 'help') {
+    const article = vbody.querySelector('.help');
+    if (article) article.scrollTop += dir * 36;
   }
 }
 function select() {
@@ -1251,7 +1369,7 @@ const wheelScroll = e => {
   while (wheelAcc <= -40) { wheelAcc += 40; turn(-STEP); }
 };
 knob.addEventListener('wheel', wheelScroll, { passive: false });
-document.querySelector('.vfd').addEventListener('wheel', e => { if (cur().kind !== 'edit') wheelScroll(e); }, { passive: false });
+document.querySelector('.vfd').addEventListener('wheel', e => { if (!['edit', 'help'].includes(cur().kind)) wheelScroll(e); }, { passive: false });
 
 function favTarget() {
   const v = cur();
