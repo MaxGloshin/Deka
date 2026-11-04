@@ -1,7 +1,8 @@
-// Дека: keeps the player itself available offline, so tracks saved in memory play without internet.
+// VibePod (formerly Deka): keeps the player shell available offline so tracks saved in IndexedDB play without internet.
 // The page is always fetched fresh when there is a connection (no stale versions); the cache is only a fallback.
-// Music and Yandex Disk requests are never touched here.
+// Music and Yandex Disk requests are never touched here. CACHE name is kept as 'deka-shell-v1' for seamless upgrade.
 const CACHE = 'deka-shell-v1';
+const LEGACY_CACHES = [];
 const SHELL = ['./', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -9,7 +10,8 @@ self.addEventListener('install', e => {
   self.skipWaiting();
 });
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
+  // Only delete explicitly known obsolete caches of this app so other GitHub Pages projects on the same origin are untouched.
+  e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => LEGACY_CACHES.includes(k)).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
 self.addEventListener('fetch', e => {
   const req = e.request;
