@@ -228,6 +228,10 @@ body{
 .help{height:100%;overflow:auto;touch-action:pan-y;overscroll-behavior:contain;padding:2px 6px 12px 2px;color:var(--dim);font:14px/1.65 var(--f-vfd);-webkit-user-select:text;user-select:text}
 .help p{margin:0 0 16px}.help p:last-child{margin-bottom:0}
 .help:focus-visible{outline:2px solid var(--glow);outline-offset:-2px}
+.share{margin-left:auto;flex:0 0 auto!important;min-width:38px!important;min-height:32px;padding:6px!important}
+.share svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.welcome{height:100%;overflow:auto;touch-action:pan-y;color:var(--dim);font:14px/1.6 var(--f-vfd);padding:12px 4px}
+.welcome h1{font-size:26px;line-height:1.2;color:var(--glow);margin:0 0 20px}.welcome p{margin:0 0 16px}.welcome-actions{display:flex;gap:10px;flex-wrap:wrap}
 </style>
 </head>
 <body>
@@ -457,6 +461,7 @@ function errText(e) {
 }
 
 /* ---------- player ---------- */
+let scanEpoch = 0;
 let queue = [], qi = -1, current = null, shuffled = false, queueName = '';
 let unlocked = false, buffering = false, loadCount = 0;
 
@@ -788,7 +793,8 @@ function togglePlay() {
   if (current.err) { badUntil.delete(offKey(current)); playAt(qi, current.lastPos || 0); return; }
   if (audio.paused) audio.play().catch(() => {}); else audio.pause();
 }
-function startQueue(files, idx, shuffle, name) {
+function startQueue(files, idx, shuffle, name, scanToken = null) {
+  if (scanToken === null) scanEpoch++;
   let list = files.slice();
   const first = list[idx];
   if (shuffle) shuffleArr(list);
@@ -924,20 +930,95 @@ async function loadFolder(v) {
 }
 async function shuffleAll(path, title, key = settings.key) {
   path = path || '/'; title = title || 'Все исполнители';
-  const v = { kind: 'list', title: (title + ' вперемешку').toUpperCase(), loading: true, loadMsg: 'СОБИРАЮ ТРЕКИ', error: null,
-    build: () => v.error ? [{ label: 'Повторить', hint: '', go: () => { stack.pop(); shuffleAll(path, title, key); } }] : [] };
-  push(v); setLoad(true);
-  try {
-    const files = await collectAll((d, t) => { v.loadMsg = 'СОБИРАЮ ТРЕКИ ' + d + '/' + t; if (cur() === v) render(); }, path, key);
-    setLoad(false);
-    if (cur() !== v) return;
-    if (!files.length) { v.loading = false; v.error = Object.assign(new Error('МУЗЫКИ НЕ НАШЛОСЬ'), { custom: true }); render(); return; }
-    stack.pop();
-    startQueue(files, 0, true, title);
-  } catch (e) {
-    setLoad(false); v.loading = false; v.error = e; render();
+  const run = ++scanEpoch;
+  const v = { kind: 'list', title: 'ВПЕРЕМЕШКУ', loading: true, loadMsg: 'ИЩУ ТРЕК', error: null,
+    build: () => v.error ? [{ label: 'Повторить', hint: '', go: () => { back(); shuffleAll(path, title, key); } }] : [] };
+  push(v);
+  const todo = [path], seen = new Set();
+  let started = false, failures = 0;
+  while (todo.length && run === scanEpoch) {
+    if (!started && cur() !== v) return;
+    const nextPath = todo.pop();
+    if (seen.has(nextPath)) continue;
+    seen.add(nextPath);
+    let items;
+    try { items = await listFolder(nextPath, key); }
+    catch (e) { failures++; if (nextPath === path) { v.loading = false; v.error = e; if (cur() === v) render(); return; } continue; }
+    if (run !== scanEpoch || (!started && cur() !== v)) return;
+    const files = shuffleArr(items.filter(t => !t.dir));
+    todo.push(...shuffleArr(items.filter(t => t.dir).map(t => t.path)));
+    if (files.length) {
+      if (!started) {
+        stack.pop(); startQueue(files, 0, false, title, run); shuffled = true; started = true;
+      } else {
+        // Keep the playing track and played prefix fixed; mix new arrivals into the remaining queue.
+        const existing = new Set(queue.map(offKey));
+        const rest = queue.slice(qi + 1).concat(files.filter(t => !existing.has(offKey(t))));
+        queue.splice(qi + 1, queue.length, ...shuffleArr(rest));
+        if (cur().kind === 'now') render();
+      }
+    }
+    // Yield to audio and input before visiting the next directory.
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  if (!started && run === scanEpoch && cur() === v) {
+    v.loading = false;
+    v.error = Object.assign(new Error(failures ? 'ЧАСТЬ ПАПОК НЕДОСТУПНА' : 'МУЗЫКИ НЕ НАШЛОСЬ'), { custom: true });
+    render();
   }
 }
+
+/* Share only public source + exact path; temporary file URLs are never distributed. */
+function validPublicKey(key) {
+  try { const u = new URL(key); return ['http:', 'https:'].includes(u.protocol) && !u.username && !u.password && /^(disk\.yandex\.(ru|com|by|kz|uz|com\.tr)|yadi\.sk)$/i.test(u.hostname); } catch (_) { return false; }
+}
+async function shareTrack() {
+  const t = current;
+  if (!t) return;
+  const source = folders.find(f => f.key === sourceKey(t));
+  const payload = { v: 1, key: sourceKey(t), path: t.path, name: t.name, folder: t.folder || '', source: source ? source.name : 'Общая папка' };
+  const url = new URL(location.href); url.hash = 'track=' + encodeURIComponent(JSON.stringify(payload));
+  const title = parseName(t.name, artistOf(t)).title;
+  try {
+    if (navigator.share) { await navigator.share({ title, text: 'Слушать в VibePod', url: url.href }); return; }
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(url.href);
+      const button = $('shareTrack');
+      if (button) { button.textContent = '✓'; button.setAttribute('aria-label', 'Ссылка скопирована'); }
+      return;
+    }
+  } catch (e) { if (e.name === 'AbortError') return; }
+  push({ kind: 'share', title: 'ССЫЛКА НА ТРЕК', url: url.href });
+}
+function openSharedTrack() {
+  if (!location.hash.startsWith('#track=')) return false;
+  let data;
+  try {
+    if (location.hash.length > 20000) throw new Error();
+    data = JSON.parse(decodeURIComponent(location.hash.slice(7)));
+    if (data.v !== 1 || typeof data.key !== 'string' || data.key.length > 2048 || !validPublicKey(data.key) || typeof data.path !== 'string' || !data.path.startsWith('/') || data.path.length > 4096 || typeof data.name !== 'string' || data.name.length > 1000) throw new Error();
+  } catch (_) {
+    push({kind:'help',title:'ССЫЛКА НЕДЕЙСТВИТЕЛЬНА',paragraphs:['Попроси отправить ссылку на трек заново.']}); return true;
+  }
+  if (!folders.some(f => f.key === data.key)) folders.push({key:data.key,name:typeof data.source === 'string' ? data.source.slice(0,60) || 'Общая папка' : 'Общая папка'});
+  settings.key = data.key; persistFolders(); favVer++; savedVer++;
+  const track = { key:data.key, path:data.path, name:data.name, folder:typeof data.folder === 'string' ? data.folder.slice(0,200) : '', dir:false, audio:true, file:null, fileAt:0, size:0, mime:'' };
+  push({kind:'list',title:parseName(track.name,artistOf(track)).title.toUpperCase(),build:()=>[
+    {label:'Слушать трек',hint:'▶',go:()=>{ store.set('onboarded',true); startQueue([track],0,false,'По ссылке'); }},
+    {label:'Открыть папку',hint:'›',go:()=>selectSource(data.key)}
+  ]});
+  return true;
+}
+function showWelcome() {
+  push({kind:'welcome',title:'VIBEPOD'});
+}
+function renderWelcome() {
+  vbody.className = 'vfd-body';
+  vbody.innerHTML = '<div class="welcome"><h1>Твоя музыка.<br>Твой ритм.</h1><p>Добавь публичную папку Яндекс Диска и слушай её как свою библиотеку.</p><p>Вращай колесо для выбора, нажимай центр, чтобы открыть. MENU — назад.</p><div class="welcome-actions"><button class="vbtn primary" id="welcomeStart">Начать</button><button class="vbtn" id="welcomeGuide">Руководство</button></div></div>';
+  $('welcomeStart').onclick = () => { store.set('onboarded',true); back(); };
+  $('welcomeGuide').onclick = () => { store.set('onboarded',true); back(); push(manualView()); };
+}
+
 function nowView() { return { kind: 'now', title: 'СЕЙЧАС ИГРАЕТ' }; }
 function savedView() {
   const v = { kind: 'list', title: 'СКАЧАННЫЕ', ver: -1, tracks: [] };
@@ -997,13 +1078,14 @@ function settingsView() {
         clearArm = false; clearSaved().then(render);
       } },
       { label: 'Обновить списки', hint: '', go: () => { cache.clear(); listFolder('/').catch(() => {}); } },
-      { label: 'Версия', hint: 'V27', go: () => {} }
+      { label: 'Версия', hint: 'V28', go: () => {} }
     ]
   };
 }
 function editView() { return { kind: 'edit', title: 'НОВАЯ ПАПКА' }; }
 function selectSource(key) {
   if (!folders.some(f => f.key === key)) return;
+  scanEpoch++;
   settings.key = key; persistFolders(); favVer++; savedVer++;
   clearArm = false; delArm = null;
   stack = [mainView()]; render();
@@ -1020,6 +1102,7 @@ function sourceActions(f) {
     { label: 'Открыть', hint: f.key === settings.key ? '✓' : '›', go: () => selectSource(f.key) },
     { label: 'Удалить ссылку', hint: '', go: () => push({ kind: 'list', title: 'УДАЛИТЬ ССЫЛКУ?', build: () => [
       { label: 'Удалить ссылку', hint: '', go: () => {
+        scanEpoch++;
         folders = folders.filter(x => x.key !== f.key);
         if (settings.key === f.key) settings.key = folders.length ? folders[0].key : '';
         persistFolders(); favVer++; savedVer++; clearArm = false; delArm = null;
@@ -1061,6 +1144,13 @@ const GUIDE = [
     'В пункте «Акцент» выбери цвет выделения, кнопок и прогресса. Цвет сохраняется отдельно от темы и работает в обоих режимах.',
     '«Повтор»: все треки, один трек или выключен. «Вперемешку» запускает выбранный список в случайном порядке. «Щелчки колеса» включают звуковой отклик.',
     '«Способ загрузки» показывает выбранный плеером способ воспроизведения. Нажатие возвращает автоматический выбор. Управление на экране блокировки зависит от браузера и устройства.'
+  ]],
+  ['Поделиться и перемешивание', [
+    'Нажми значок «Поделиться» на экране трека. Откроется меню устройства или ссылка скопируется. Если копирование недоступно, скопируй её из поля.',
+    'У получателя автоматически добавится публичная папка. Кнопка «Слушать трек» запустит именно отправленный файл. Нажатие необходимо из-за ограничений автоматического воспроизведения в браузерах.',
+    'Ссылка открывает доступ ко всей публичной папке, а не только к одному треку. Закрытый или удалённый файл может стать недоступен. Избранное и скачанная музыка отправителя не передаются.',
+    'При перемешивании плеер посещает папки в случайном порядке и начинает играть, как только найдёт первые треки. Остальные добавляются в очередь в фоне. Первый трек выбирается из первой найденной непустой папки, поэтому вероятность по всему диску не равномерная.',
+    'Выбор нового трека, другой папки или нового перемешивания отменяет старое фоновое сканирование.'
   ]],
   ['Если музыка не играет', [
     'Проверь интернет и доступность публичной папки. При временной ошибке плеер обновляет ссылку на трек и пробует повторить воспроизведение.',
@@ -1105,7 +1195,7 @@ function saveKey() {
 
 function render() {
   const v = cur();
-  document.querySelector('.vfd').classList.toggle('reading', v.kind === 'help' || v.kind === 'edit');
+  document.querySelector('.vfd').classList.toggle('reading', ['help','edit','welcome','share'].includes(v.kind));
   const canBack = stack.length > 1;
   vtitle.classList.toggle('can-back', canBack);
   if (canBack) {
@@ -1121,6 +1211,11 @@ function render() {
   if (v.kind === 'now') return renderNow();
   if (v.kind === 'edit') return renderEdit();
   if (v.kind === 'help') return renderHelp(v);
+  if (v.kind === 'welcome') return renderWelcome();
+  if (v.kind === 'share') {
+    vbody.innerHTML = '<div class="edit"><label for="shareUrl">Скопируй ссылку</label><input id="shareUrl" readonly></div>';
+    $('shareUrl').value = v.url; $('shareUrl').onclick = () => $('shareUrl').select(); return;
+  }
   vbody.className = 'vfd-body';
   v.sel = v.sel | 0; v.top = v.top | 0;
   const items = v.items = v.build();
@@ -1179,11 +1274,12 @@ function renderNow() {
     '<div class="np"><div class="np-meta"><span>ТРЕК ' + (qi + 1) + ' / ' + queue.length + '</span><span>' + esc(current.folder || queueName) + '</span></div>' +
     '<div class="np-mid"><div class="np-artist">' + (isFav(current) ? HEART + ' ' : '') + esc(p.artist) + '</div><div class="np-title">' + esc(p.title) + '</div>' +
     (current.gaveUp ? '<div class="np-err">' + esc(current.status) + '<br>' + esc(current.err) + '</div>' : '') + '</div>' +
-    '<div class="np-actions"><button type="button" class="vbtn" id="npAct"></button></div>' +
+    '<div class="np-actions"><button type="button" class="vbtn" id="npAct"></button><button type="button" class="vbtn share" id="shareTrack" aria-label="Поделиться треком" title="Поделиться треком"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V3m-5 5 5-5 5 5M5 13v7h14v-7"/></svg></button></div>' +
     '<div class="np-bar">' + '<i></i>'.repeat(SEGS) + '</div>' +
     '<div class="np-time"><span id="npEl">00:00</span><span id="npRem">-00:00</span></div></div>';
   segEls = vbody.querySelectorAll('.np-bar i'); npEl = $('npEl'); npRem = $('npRem');
   wireAct($('npAct'));
+  $('shareTrack').addEventListener('click', shareTrack);
   updateDl();
   updateNow(); }
 /* "Скачать" saves the track into the player's own storage; a second tap on "в памяти" offers removal. */
@@ -1307,6 +1403,7 @@ function select() {
   if (v.kind === 'list') { const it = (v.items || [])[v.sel]; if (it && it.go) it.go(); }
   else if (v.kind === 'now') togglePlay();
   else if (v.kind === 'edit') saveKey();
+  else if (v.kind === 'welcome') { store.set('onboarded',true); back(); }
 }
 
 let rot = 0, acc = 0, lastA = 0, dragId = null, downX = 0, downY = 0, downA = 0, moved = 0;
@@ -1369,7 +1466,7 @@ const wheelScroll = e => {
   while (wheelAcc <= -40) { wheelAcc += 40; turn(-STEP); }
 };
 knob.addEventListener('wheel', wheelScroll, { passive: false });
-document.querySelector('.vfd').addEventListener('wheel', e => { if (!['edit', 'help'].includes(cur().kind)) wheelScroll(e); }, { passive: false });
+document.querySelector('.vfd').addEventListener('wheel', e => { if (!['edit', 'help', 'welcome', 'share'].includes(cur().kind)) wheelScroll(e); }, { passive: false });
 
 function favTarget() {
   const v = cur();
@@ -1458,6 +1555,8 @@ stack = [mainView()];
 setAnn();
 render();
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (cur().kind === 'list') render(); });
+if (!openSharedTrack() && !store.get('onboarded', false)) showWelcome();
+window.addEventListener('hashchange', () => { scanEpoch++; stack = [mainView()]; render(); openSharedTrack(); });
 listFolder('/').catch(() => {});   // warm the artist list
 // installable app (Android "Установить приложение") and offline start; only on the real site
 if ('serviceWorker' in navigator && location.protocol === 'https:' && /github\.io$/.test(location.hostname)) navigator.serviceWorker.register('sw.js').catch(() => {});
