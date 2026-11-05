@@ -345,7 +345,7 @@ function toggleFav(t) {
   store.set('favs', favAll); favVer++;
   return i < 0;
 }
-const favTracks = () => favList().map(f => ({ key: settings.key, name: f.n, path: f.p, dir: false, audio: true, file: null, fileAt: 0, folder: f.f, mime: f.m, size: f.s }));
+const favTracks = () => Object.keys(favAll || {}).flatMap(key => favList(key).map(f => ({ key, name: f.n, path: f.p, dir: false, audio: true, file: null, fileAt: 0, folder: f.f, mime: f.m, size: f.s })));
 
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
@@ -905,9 +905,9 @@ function mainView() {
     build: () => {
       const it = settings.key ? [
         { label: 'Исполнители', hint: '›', go: () => push(folderView('/', 'Исполнители')) },
-        { label: 'Избранное', hint: favList().length ? String(favList().length) : '›', go: () => push(favView()) },
         { label: 'Вперемешку', hint: '', go: () => shuffleAll('/', 'Все исполнители') }
       ] : [];
+      it.splice(Math.min(1, it.length), 0, { label: 'Избранное', hint: favTracks().length ? String(favTracks().length) : '›', go: () => push(favView()) });
       it.splice(Math.min(2, it.length), 0, { label: 'Скачанные', hint: savedStats().n ? String(savedStats().n) : '›', go: () => push(savedView()) });
       it.push({ label: 'Папки', hint: String(folders.length), go: () => push(sourcesView()) });
       if (current) it.push({ label: 'Сейчас играет', hint: '›', go: () => push(nowView()) });
@@ -1109,7 +1109,7 @@ function favView() {
     const tr = v.tracks;
     if (!tr.length) {
       v.empty = ['ПОКА ПУСТО', ''];
-      return [{ label: 'К исполнителям', hint: '›', go: () => push(folderView('/', 'Исполнители')) }];
+      return [{ label: 'Папки', hint: '›', go: () => push(sourcesView()) }];
     }
     v.empty = null;
     const it = [
@@ -1141,7 +1141,7 @@ function settingsView() {
         clearArm = false; clearSaved().then(render);
       } },
       { label: 'Обновить списки', hint: '', go: () => { cache.clear(); listFolder('/').catch(() => {}); } },
-      { label: 'Версия', hint: 'V31', go: () => {} }
+      { label: 'Версия', hint: 'V32', go: () => {} }
     ]
   };
 }
@@ -1191,8 +1191,8 @@ const GUIDE = [
   ]],
   ['Музыка и папки', [
     'Открой «Папки» → «Добавить папку». Вставь публичную ссылку Яндекс Диска и при желании дай ей название. На Диске: открой папку → «Поделиться» → скопируй ссылку.',
-    'Выбери сохранённую папку и нажми «Открыть». В главном меню «Исполнители», «Избранное» и перемешивание относятся к выбранной папке. «Скачанные» — общая библиотека сохранённых треков из всех папок.',
-    'Чтобы убрать папку из списка, выбери её → «Удалить ссылку» и подтверди. Скачанная музыка остаётся доступной в «Скачанных», даже если удалить все ссылки. Избранное тоже сохраняется: добавь ту же ссылку снова, чтобы увидеть его. Название можно изменить, повторно добавив ту же ссылку с новым именем.',
+    'Выбери сохранённую папку и нажми «Открыть». В главном меню «Исполнители» и перемешивание относятся к выбранной папке. «Избранное» и «Скачанные» объединяют треки из всех папок.',
+    'Чтобы убрать папку из списка, выбери её → «Удалить ссылку» и подтверди. Скачанная музыка остаётся доступной в «Скачанных», даже если удалить все ссылки. Избранное тоже остаётся в общем списке. Для воспроизведения несохранённых треков нужны интернет и доступная публичная папка. Название можно изменить, повторно добавив ту же ссылку с новым именем.',
     'При переключении папок текущая музыка и её очередь продолжают играть из прежнего источника. Новый трек заменит очередь. Папки и избранное хранятся только в этом браузере.'
   ]],
   ['Избранное и скачивание', [
