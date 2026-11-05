@@ -972,12 +972,60 @@ async function shuffleAll(path, title, key = settings.key) {
 function validPublicKey(key) {
   try { const u = new URL(key); return ['http:', 'https:'].includes(u.protocol) && !u.username && !u.password && /^(disk\.yandex\.(ru|com|by|kz|uz|com\.tr)|yadi\.sk)$/i.test(u.hostname); } catch (_) { return false; }
 }
+// Small synchronous LZSS codec: no network, libraries or asynchronous share preparation.
+function packTrackLink(key, path, name) {
+  const match = key.match(/^https:\/\/disk\.yandex\.ru\/d\/([A-Za-z0-9_-]+)$/);
+  const fields = [match ? 'r:' + match[1] : key, path];
+  if (name && name !== path.split('/').pop()) fields.push(name);
+  const bytes = new TextEncoder().encode(JSON.stringify(fields)), compressed = [];
+  for (let i = 0; i < bytes.length;) {
+    const flagAt = compressed.length; compressed.push(0);
+    for (let bit = 0; bit < 8 && i < bytes.length; bit++) {
+      let best = 0, distance = 0;
+      for (let j = i - 1; j >= Math.max(0, i - 4095); j--) {
+        if (bytes[j] !== bytes[i]) continue;
+        let len = 1;
+        while (len < 18 && i + len < bytes.length && bytes[j + len] === bytes[i + len]) len++;
+        if (len > best && len >= 3) { best = len; distance = i - j; if (len === 18) break; }
+      }
+      if (best >= 3) {
+        compressed[flagAt] |= 1 << bit;
+        compressed.push(distance >> 4, ((distance & 15) << 4) | (best - 3)); i += best;
+      } else compressed.push(bytes[i++]);
+    }
+  }
+  const useCompressed = compressed.length < bytes.length;
+  const body = useCompressed ? compressed : bytes;
+  return '1' + (useCompressed ? 'c' : 'u') + btoa(String.fromCharCode(...body)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function unpackTrackLink(token) {
+  if (!/^1[cu][A-Za-z0-9_-]+$/.test(token) || token.length > 16000) throw new Error('Invalid link');
+  const raw = Uint8Array.from(atob(token.slice(2).replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0));
+  const out = [];
+  if (token[1] === 'u') out.push(...raw);
+  else for (let i = 0; i < raw.length;) {
+    const flags = raw[i++];
+    for (let bit = 0; bit < 8 && i < raw.length; bit++) {
+      if (flags & (1 << bit)) {
+        if (i + 1 >= raw.length) throw new Error('Truncated link');
+        const a = raw[i++], b = raw[i++], offset = (a << 4) | (b >> 4), len = (b & 15) + 3;
+        if (!offset || offset > out.length) throw new Error('Invalid offset');
+        for (let n = 0; n < len; n++) out.push(out[out.length - offset]);
+      } else out.push(raw[i++]);
+      if (out.length > 12000) throw new Error('Link too large');
+    }
+  }
+  if (out.length > 12000) throw new Error('Link too large');
+  const fields = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(out)));
+  if (!Array.isArray(fields) || fields.length < 2 || fields.length > 3 || fields.some(x => typeof x !== 'string')) throw new Error('Invalid fields');
+  const key = fields[0].startsWith('r:') ? 'https://disk.yandex.ru/d/' + fields[0].slice(2) : fields[0];
+  return { v:1, key, path:fields[1], name:fields[2] || fields[1].split('/').pop(), folder:parentName(fields[1]), source:'Общая папка' };
+}
+
 async function shareTrack() {
   const t = current;
   if (!t) return;
-  const source = folders.find(f => f.key === sourceKey(t));
-  const payload = { v: 1, key: sourceKey(t), path: t.path, name: t.name, folder: t.folder || '', source: source ? source.name : 'Общая папка' };
-  const url = new URL(location.href); url.hash = 'track=' + encodeURIComponent(JSON.stringify(payload));
+  const url = new URL(location.href); url.hash = 't=' + packTrackLink(sourceKey(t), t.path, t.name);
   const title = parseName(t.name, artistOf(t)).title;
   try {
     if (navigator.share) { await navigator.share({ title, text: 'Слушать в VibePod', url: url.href }); return; }
@@ -991,11 +1039,11 @@ async function shareTrack() {
   push({ kind: 'share', title: 'ССЫЛКА НА ТРЕК', url: url.href });
 }
 function openSharedTrack() {
-  if (!location.hash.startsWith('#track=')) return false;
+  if (!location.hash.startsWith('#track=') && !location.hash.startsWith('#t=')) return false;
   let data;
   try {
     if (location.hash.length > 20000) throw new Error();
-    data = JSON.parse(decodeURIComponent(location.hash.slice(7)));
+    data = location.hash.startsWith('#t=') ? unpackTrackLink(location.hash.slice(3)) : JSON.parse(decodeURIComponent(location.hash.slice(7)));
     if (data.v !== 1 || typeof data.key !== 'string' || data.key.length > 2048 || !validPublicKey(data.key) || typeof data.path !== 'string' || !data.path.startsWith('/') || data.path.length > 4096 || typeof data.name !== 'string' || data.name.length > 1000) throw new Error();
   } catch (_) {
     push({kind:'help',title:'ССЫЛКА НЕДЕЙСТВИТЕЛЬНА',paragraphs:['Попроси отправить ссылку на трек заново.']}); return true;
@@ -1078,7 +1126,7 @@ function settingsView() {
         clearArm = false; clearSaved().then(render);
       } },
       { label: 'Обновить списки', hint: '', go: () => { cache.clear(); listFolder('/').catch(() => {}); } },
-      { label: 'Версия', hint: 'V28', go: () => {} }
+      { label: 'Версия', hint: 'V29', go: () => {} }
     ]
   };
 }
@@ -1148,6 +1196,7 @@ const GUIDE = [
   ['Поделиться и перемешивание', [
     'Нажми значок «Поделиться» на экране трека. Откроется меню устройства или ссылка скопируется. Если копирование недоступно, скопируй её из поля.',
     'У получателя автоматически добавится публичная папка. Кнопка «Слушать трек» запустит именно отправленный файл. Нажатие необходимо из-за ограничений автоматического воспроизведения в браузерах.',
+    'Новые ссылки компактно упакованы и работают без сервера. Это не шифрование. Ранее отправленные ссылки тоже поддерживаются.',
     'Ссылка открывает доступ ко всей публичной папке, а не только к одному треку. Закрытый или удалённый файл может стать недоступен. Избранное и скачанная музыка отправителя не передаются.',
     'При перемешивании плеер посещает папки в случайном порядке и начинает играть, как только найдёт первые треки. Остальные добавляются в очередь в фоне. Первый трек выбирается из первой найденной непустой папки, поэтому вероятность по всему диску не равномерная.',
     'Выбор нового трека, другой папки или нового перемешивания отменяет старое фоновое сканирование.'
