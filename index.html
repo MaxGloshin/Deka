@@ -212,7 +212,7 @@ body{
 }
 @media (prefers-reduced-motion:reduce){.txt.mq,.blink,.np-time .scrub{animation:none}.knob-face,.cap{transition:none}}
 
-/* Accent colours retain white selection text in either appearance. */
+/* Base accent colours; light-mode pastel overrides follow below. */
 :root[data-accent="mint"]{--glow:#17664f;--selected:#206b53;--button-bg:rgba(32,107,83,.1)}
 :root[data-theme="dark"][data-accent="mint"]{--glow:#80dec0;--button-bg:rgba(32,107,83,.25)}
 :root[data-accent="violet"]{--glow:#7041ad;--selected:#7041ad;--button-bg:rgba(112,65,173,.1)}
@@ -232,6 +232,15 @@ body{
 .share svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .welcome{height:100%;overflow:auto;touch-action:pan-y;color:var(--dim);font:14px/1.6 var(--f-vfd);padding:12px 4px}
 .welcome h1{font-size:26px;line-height:1.2;color:var(--glow);margin:0 0 20px}.welcome p{margin:0 0 16px}.welcome-actions{display:flex;gap:10px;flex-wrap:wrap}
+
+/* Pastel accents only in light mode; dark palette stays unchanged. */
+:root:not([data-theme="dark"])[data-accent="blue"]{--glow:#326aa1;--selected:#d5e9fc;--selected-text:#326aa1;--button-bg:#d5e9fc;--accent-swatch:#d5e9fc}
+:root:not([data-theme="dark"])[data-accent="mint"]{--glow:#286e5b;--selected:#d5eee3;--selected-text:#286e5b;--button-bg:#d5eee3;--accent-swatch:#d5eee3}
+:root:not([data-theme="dark"])[data-accent="violet"]{--glow:#79539e;--selected:#eadff7;--selected-text:#79539e;--button-bg:#eadff7;--accent-swatch:#eadff7}
+:root:not([data-theme="dark"])[data-accent="rose"]{--glow:#a04d74;--selected:#f8deea;--selected-text:#a04d74;--button-bg:#f8deea;--accent-swatch:#f8deea}
+:root:not([data-theme="dark"])[data-accent="amber"]{--glow:#8a6028;--selected:#f8e8c9;--selected-text:#8a6028;--button-bg:#f8e8c9;--accent-swatch:#f8e8c9}
+:root:not([data-theme="dark"])[data-accent="graphite"]{--glow:#586777;--selected:#e1e7ed;--selected-text:#586777;--button-bg:#e1e7ed;--accent-swatch:#e1e7ed}
+:root:not([data-theme="dark"]) .color-chip{background:var(--light-swatch)!important}
 </style>
 </head>
 <body>
@@ -296,12 +305,12 @@ persistFolders();
 
 /* ---------- appearance: a preference change never recreates audio or the view ---------- */
 const ACCENTS = {
-  blue: { name: 'Синий', swatch: '#2374cf' },
-  mint: { name: 'Мятный', swatch: '#26836c' },
-  violet: { name: 'Фиолетовый', swatch: '#8954ce' },
-  rose: { name: 'Розовый', swatch: '#c24984' },
-  amber: { name: 'Янтарный', swatch: '#c67423' },
-  graphite: { name: 'Графитовый', swatch: '#64748b' }
+  blue: { light: '#d5e9fc', name: 'Синий', swatch: '#2374cf' },
+  mint: { light: '#d5eee3', name: 'Мятный', swatch: '#26836c' },
+  violet: { light: '#eadff7', name: 'Фиолетовый', swatch: '#8954ce' },
+  rose: { light: '#f8deea', name: 'Розовый', swatch: '#c24984' },
+  amber: { light: '#f8e8c9', name: 'Янтарный', swatch: '#c67423' },
+  graphite: { light: '#e1e7ed', name: 'Графитовый', swatch: '#64748b' }
 };
 let accent = store.get('accent', 'blue');
 if (!Object.prototype.hasOwnProperty.call(ACCENTS, accent)) accent = 'blue';
@@ -570,10 +579,17 @@ let savedMeta = store.get('saved', {}) || {}, savedVer = 0, clearArm = false;
 const offKey = t => sourceKey(t) + '|' + t.path;
 const isSaved = t => !!t && !!savedMeta[offKey(t)];
 const saveMeta = () => { store.set('saved', savedMeta); savedVer++; };
-function savedEntries() { const pre = settings.key + '|'; return Object.keys(savedMeta).filter(k => k.startsWith(pre)).map(k => savedMeta[k]); }
+function savedEntries() {
+  // Recover the source from the existing storage key; no migration or re-download.
+  return Object.entries(savedMeta).flatMap(([id, f]) => {
+    if (!f || typeof f.p !== 'string' || !id.endsWith('|' + f.p)) return [];
+    const key = id.slice(0, -(f.p.length + 1));
+    return key ? [{ ...f, key }] : [];
+  });
+}
 function savedTracks() {
   return savedEntries().sort((a, b) => b.at - a.at)
-    .map(f => ({ key: settings.key, name: f.n, path: f.p, dir: false, audio: true, file: null, fileAt: 0, folder: f.f, mime: f.m, size: f.s }));
+    .map(f => ({ key: f.key, name: f.n, path: f.p, dir: false, audio: true, file: null, fileAt: 0, folder: f.f, mime: f.m, size: f.s }));
 }
 function savedStats() { const e = savedEntries(); return { n: e.length, mb: Math.round(e.reduce((a, f) => a + (f.s || 0), 0) / 1048576) }; }
 
@@ -609,8 +625,7 @@ async function runDownloads() {
 function dlRefresh() { updateDl(); }
 async function removeSaved(t) { try { await idb.del(offKey(t)); } catch (e) {} delete savedMeta[offKey(t)]; saveMeta(); }
 async function clearSaved() {
-  const pre = settings.key + '|';
-  const keys = Object.keys(savedMeta).filter(k => k.startsWith(pre));
+  const keys = Object.keys(savedMeta);
   for (const k of keys) { try { await idb.del(k); } catch (e) {} delete savedMeta[k]; }
   saveMeta();
 }
@@ -891,9 +906,9 @@ function mainView() {
       const it = settings.key ? [
         { label: 'Исполнители', hint: '›', go: () => push(folderView('/', 'Исполнители')) },
         { label: 'Избранное', hint: favList().length ? String(favList().length) : '›', go: () => push(favView()) },
-        { label: 'Скачанные', hint: savedStats().n ? String(savedStats().n) : '›', go: () => push(savedView()) },
         { label: 'Вперемешку', hint: '', go: () => shuffleAll('/', 'Все исполнители') }
       ] : [];
+      it.splice(Math.min(2, it.length), 0, { label: 'Скачанные', hint: savedStats().n ? String(savedStats().n) : '›', go: () => push(savedView()) });
       it.push({ label: 'Папки', hint: String(folders.length), go: () => push(sourcesView()) });
       if (current) it.push({ label: 'Сейчас играет', hint: '›', go: () => push(nowView()) });
       it.push({ label: 'Настройки', hint: '›', go: () => push(settingsView()) });
@@ -1075,7 +1090,7 @@ function savedView() {
     const tr = v.tracks;
     if (!tr.length) {
       v.empty = ['ПОКА ПУСТО', ''];
-      return [{ label: 'К исполнителям', hint: '›', go: () => push(folderView('/', 'Исполнители')) }];
+      return [{ label: 'Папки', hint: '›', go: () => push(sourcesView()) }];
     }
     v.empty = null;
     const it = [
@@ -1121,12 +1136,12 @@ function settingsView() {
       { label: 'Папки на Диске', hint: String(folders.length), go: () => push(sourcesView()) },
       { label: 'Способ загрузки', hint: MODES.includes(mode) ? MODE_NAMES[mode] : 'АВТО', go: () => { mode = null; store.set('mode', null); render(); } },
       { label: 'Память плеера', hint: savedStats().n + ' ТР · ' + savedStats().mb + ' МБ', go: () => push(savedView()) },
-      { label: clearArm ? 'Точно удалить всё?' : 'Очистить память', hint: '', go: () => {
+      { label: clearArm ? 'Удалить из всех папок?' : 'Очистить всю память', hint: '', go: () => {
         if (!clearArm) { clearArm = true; render(); setTimeout(() => { clearArm = false; if (cur().title === 'НАСТРОЙКИ') render(); }, 3000); return; }
         clearArm = false; clearSaved().then(render);
       } },
       { label: 'Обновить списки', hint: '', go: () => { cache.clear(); listFolder('/').catch(() => {}); } },
-      { label: 'Версия', hint: 'V29', go: () => {} }
+      { label: 'Версия', hint: 'V31', go: () => {} }
     ]
   };
 }
@@ -1176,15 +1191,15 @@ const GUIDE = [
   ]],
   ['Музыка и папки', [
     'Открой «Папки» → «Добавить папку». Вставь публичную ссылку Яндекс Диска и при желании дай ей название. На Диске: открой папку → «Поделиться» → скопируй ссылку.',
-    'Выбери сохранённую папку и нажми «Открыть». В главном меню «Исполнители», «Избранное», «Скачанные» и перемешивание относятся к выбранной папке. Несколько папок сохраняются как отдельные библиотеки.',
-    'Чтобы убрать папку из списка, выбери её → «Удалить ссылку» и подтверди. Избранное и скачанная музыка не стираются: добавь ту же ссылку снова, чтобы увидеть их. Название можно изменить, повторно добавив ту же ссылку с новым именем.',
+    'Выбери сохранённую папку и нажми «Открыть». В главном меню «Исполнители», «Избранное» и перемешивание относятся к выбранной папке. «Скачанные» — общая библиотека сохранённых треков из всех папок.',
+    'Чтобы убрать папку из списка, выбери её → «Удалить ссылку» и подтверди. Скачанная музыка остаётся доступной в «Скачанных», даже если удалить все ссылки. Избранное тоже сохраняется: добавь ту же ссылку снова, чтобы увидеть его. Название можно изменить, повторно добавив ту же ссылку с новым именем.',
     'При переключении папок текущая музыка и её очередь продолжают играть из прежнего источника. Новый трек заменит очередь. Папки и избранное хранятся только в этом браузере.'
   ]],
   ['Избранное и скачивание', [
     'На экране трека нажми «В избранное». Следующее нажатие кнопки «Скачать» сохранит музыку внутри плеера. Удержание этой кнопки переключает избранное.',
     'В разделе «Избранное» можно скачать весь список. «В очереди», проценты и отметка «В памяти» показывают состояние загрузки.',
     'Скачивание сохраняет трек в этом браузере, а не в системной папке загрузок. Для прослушивания без сети сначала открой сайт с интернетом, дождись сохранения трека, затем используй раздел «Скачанные».',
-    'Чтобы удалить трек из памяти, нажми «В памяти» и подтверди повторным нажатием. «Очистить память» в настройках удаляет скачанные треки выбранной папки после подтверждения.',
+    'Чтобы удалить трек из памяти, нажми «В памяти» и подтверди повторным нажатием. «Очистить всю память» в настройках удаляет скачанные треки из всех папок только после повторного нажатия для подтверждения.',
     'Браузер может удалить локальные данные при очистке или нехватке места. Между устройствами музыка и избранное не синхронизируются.'
   ]],
   ['Оформление и воспроизведение', [
@@ -1291,7 +1306,7 @@ function render() {
     const it = items[i], on = i === v.sel;
     const playing = it.track && current && offKey(it.track) === offKey(current);
     html += '<div class="row' + (on ? ' on' : '') + '" data-i="' + i + '"><span class="car">' + (on ? '▸' : '') +
-      '</span>' + (it.accent ? '<span class="color-chip" style="background:' + ACCENTS[it.accent].swatch + '" aria-hidden="true"></span>' : '') + '<span class="lbl"><span class="txt">' + esc(it.label) + '</span></span><span class="hint">' +
+      '</span>' + (it.accent ? '<span class="color-chip" style="background:' + ACCENTS[it.accent].swatch + ';--light-swatch:' + ACCENTS[it.accent].light + '" aria-hidden="true"></span>' : '') + '<span class="lbl"><span class="txt">' + esc(it.label) + '</span></span><span class="hint">' +
       (playing ? (audio.paused ? '‖' : '♪') : (!it.hint && it.track ? (isFav(it.track) ? HEART : '') + (isSaved(it.track) ? '✓' : isBad(it.track) ? '✕' : '') : esc(it.hint || ''))) + '</span></div>';
   }
   if (items.length > rows) {
