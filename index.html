@@ -340,12 +340,17 @@ function toggleFav(t) {
   const list = favList(key).slice();
   const i = list.findIndex(f => f.p === t.path);
   if (i >= 0) list.splice(i, 1);
-  else list.unshift({ p: t.path, n: t.name, f: t.folder || '', m: t.mime || '', s: t.size || 0 });
+  else list.unshift({ p: t.path, n: t.name, f: t.folder || '', m: t.mime || '', s: t.size || 0, at: Date.now() });
   favAll = Object.assign({}, favAll, { [key]: list });
   store.set('favs', favAll); favVer++;
   return i < 0;
 }
-const favTracks = () => Object.keys(favAll || {}).flatMap(key => favList(key).map(f => ({ key, name: f.n, path: f.p, dir: false, audio: true, file: null, fileAt: 0, folder: f.f, mime: f.m, size: f.s })));
+// New favorites have a timestamp. Legacy favorites retain their existing relative order
+// (newest first per source), because their exact addition dates were never stored.
+const favTracks = () => Object.keys(favAll || {}).flatMap(key =>
+  favList(key).map((f, index) => ({ key, f, index }))
+).sort((a, b) => (Number(b.f.at) || 0) - (Number(a.f.at) || 0))
+ .map(({ key, f }) => ({ key, name: f.n, path: f.p, dir: false, audio: true, file: null, fileAt: 0, folder: f.f, mime: f.m, size: f.s }));
 
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
@@ -588,7 +593,7 @@ function savedEntries() {
   });
 }
 function savedTracks() {
-  return savedEntries().sort((a, b) => b.at - a.at)
+  return savedEntries().sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0))
     .map(f => ({ key: f.key, name: f.n, path: f.p, dir: false, audio: true, file: null, fileAt: 0, folder: f.f, mime: f.m, size: f.s }));
 }
 function savedStats() { const e = savedEntries(); return { n: e.length, mb: Math.round(e.reduce((a, f) => a + (f.s || 0), 0) / 1048576) }; }
