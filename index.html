@@ -1104,6 +1104,16 @@ function renderWelcome() {
 }
 
 function nowView() { return { kind: 'now', title: 'СЕЙЧАС ИГРАЕТ' }; }
+function snapTrackListToPlaying(v) {
+  if (!current) return;
+  const items = v.items || v.build();
+  const index = items.findIndex(it => it.track && samePlayingTrack(it.track));
+  if (index >= 0) {
+    v.sel = index;
+    v.top = Math.max(0, index - 1);
+    render();
+  }
+}
 function savedView() {
   const v = { kind: 'list', title: 'СКАЧАННЫЕ', ver: -1, tracks: [] };
   v.build = () => {
@@ -1121,6 +1131,7 @@ function savedView() {
     tr.forEach((f, i) => { const p = parseName(f.name, artistOf(f)); it.push({ label: p.artist + ' — ' + p.title, track: f, hint: '', go: () => openTrackFromList(tr, i, 'Скачанные') }); });
     return it;
   };
+  v.enter = () => snapTrackListToPlaying(v);
   return v;
 }
 function favView() {
@@ -1142,6 +1153,7 @@ function favView() {
     tr.forEach((f, i) => { const p = parseName(f.name, artistOf(f)); it.push({ label: p.artist + ' — ' + p.title, track: f, hint: '', go: () => openTrackFromList(tr, i, 'Избранное') }); });
     return it;
   };
+  v.enter = () => snapTrackListToPlaying(v);
   return v;
 }
 function settingsView() {
