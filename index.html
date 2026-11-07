@@ -916,6 +916,27 @@ function mainView() {
     }
   };
 }
+function samePlayingTrack(track) {
+  return !!(track && current && offKey(track) === offKey(current));
+}
+function snapFolderToPlaying(v) {
+  if (v.snapped || !current || !v.data || v.key !== sourceKey(current)) return;
+  v.snapped = true;
+  const base = v.path === '/' ? '/' : v.path.replace(/\/$/, '') + '/';
+  const target = String(current.path || '');
+  if (!target.startsWith(base)) return;
+  const rest = target.slice(base.length).replace(/^\//, '');
+  const segment = rest.split('/')[0];
+  const items = v.items = v.build();
+  const index = items.findIndex(it => it.track
+    ? samePlayingTrack(it.track)
+    : it.folderPath && it.folderPath === base + segment);
+  if (index >= 0) { v.sel = index; v.top = Math.max(0, index - 1); }
+}
+function openTrackFromList(files, index, name) {
+  if (samePlayingTrack(files[index])) { push(nowView()); return; }
+  startQueue(files, index, false, name);
+}
 function folderView(path, title, key = settings.key) {
   const v = { key, kind: 'list', title: title.toUpperCase(), path, loading: true, error: null, data: null };
   v.build = () => {
@@ -930,8 +951,8 @@ function folderView(path, title, key = settings.key) {
       it.push({ label: 'Слушать все', hint: String(files.length), go: () => startQueue(files, 0, false, title) });
       it.push({ label: 'Вперемешку', hint: '', go: () => startQueue(files, 0, true, title) });
     }
-    dirs.forEach(d => it.push({ label: d.name, hint: '›', go: () => push(folderView(d.path, d.name, key)) }));
-    files.forEach((f, i) => it.push({ label: parseName(f.name, artistOf(f)).title, track: f, hint: '', go: () => startQueue(files, i, false, title) }));
+    dirs.forEach(d => it.push({ label: d.name, folderPath: d.path, hint: '›', go: () => push(folderView(d.path, d.name, key)) }));
+    files.forEach((f, i) => it.push({ label: parseName(f.name, artistOf(f)).title, track: f, hint: '', go: () => openTrackFromList(files, i, title) }));
     if (!it.length) { v.error = Object.assign(new Error('ПАПКА ПУСТАЯ'), { custom: true }); return []; }
     return it;
   };
@@ -941,7 +962,7 @@ function folderView(path, title, key = settings.key) {
 async function loadFolder(v) {
   v.loading = true; v.error = null; setLoad(true); render();
   try { v.data = await listFolder(v.path, v.key); } catch (e) { v.error = e; }
-  v.loading = false; setLoad(false); render();
+  v.loading = false; setLoad(false); if (!v.error) snapFolderToPlaying(v); render();
 }
 async function shuffleAll(path, title, key = settings.key) {
   path = path || '/'; title = title || 'Все исполнители';
@@ -1097,7 +1118,7 @@ function savedView() {
       { label: 'Слушать все', hint: String(tr.length), go: () => startQueue(tr, 0, false, 'Скачанные') },
       { label: 'Вперемешку', hint: '', go: () => startQueue(tr, 0, true, 'Скачанные') }
     ];
-    tr.forEach((f, i) => { const p = parseName(f.name, artistOf(f)); it.push({ label: p.artist + ' — ' + p.title, track: f, hint: '', go: () => startQueue(tr, i, false, 'Скачанные') }); });
+    tr.forEach((f, i) => { const p = parseName(f.name, artistOf(f)); it.push({ label: p.artist + ' — ' + p.title, track: f, hint: '', go: () => openTrackFromList(tr, i, 'Скачанные') }); });
     return it;
   };
   return v;
@@ -1118,7 +1139,7 @@ function favView() {
     ];
     const missing = tr.filter(t => !isSaved(t)).length;
     if (missing) it.push({ label: 'Скачать всё в память', hint: String(missing), go: () => queueDownload(tr) });
-    tr.forEach((f, i) => { const p = parseName(f.name, artistOf(f)); it.push({ label: p.artist + ' — ' + p.title, track: f, hint: '', go: () => startQueue(tr, i, false, 'Избранное') }); });
+    tr.forEach((f, i) => { const p = parseName(f.name, artistOf(f)); it.push({ label: p.artist + ' — ' + p.title, track: f, hint: '', go: () => openTrackFromList(tr, i, 'Избранное') }); });
     return it;
   };
   return v;
