@@ -3,7 +3,7 @@
 // Music and Yandex Disk requests are never touched here. CACHE name is kept as 'deka-shell-v1' for seamless upgrade.
 const CACHE = 'deka-shell-v1';
 const LEGACY_CACHES = [];
-const SHELL = ['./', './manifest.webmanifest', './icon-192.png', './icon-512.png', './vibepod-art.svg'];
+const SHELL = ['./', './manifest.webmanifest', './icon-192.png', './icon-512.png', './vibepod-art.svg', './vibepod-media-art.svg'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).catch(() => {}));
