@@ -1176,13 +1176,29 @@ function backupPayload() {
     preferences: { clicks: settings.clicks, repeat: settings.repeat }
   };
 }
-function exportBackup() {
+async function exportBackup() {
   try {
     const json = JSON.stringify(backupPayload(), null, 2);
+    const filename = 'VibePod-backup-' + new Date().toISOString().slice(0, 10) + '.json';
     const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+    // On iOS, show the native share sheet so the user can choose "Save to Files".
+    // Do not open a preview that might offer unrelated apps as JSON handlers.
+    if (navigator.share && typeof File !== 'undefined') {
+      const file = new File([blob], filename, { type: 'application/json' });
+      if (!navigator.canShare || navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file] });
+          return;
+        } catch (e) {
+          // Cancellation is intentional: never trigger an unexpected download.
+          if (e && e.name === 'AbortError') return;
+          // Unsupported sharing falls back to the usual file download.
+        }
+      }
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = 'VibePod-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.href = url; a.download = filename;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch (e) { alert('Не удалось создать резервную копию: ' + e.message); }
