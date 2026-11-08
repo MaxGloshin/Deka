@@ -11,22 +11,10 @@
   "theme_color": "#f5f5f3",
   "icons": [
     {
-      "src": "vibepod-icon-v3-192.png",
-      "sizes": "192x192",
+      "src": "A4899923-55AA-45DB-A8F4-A888AF004F53.png",
+      "sizes": "1254x1254",
       "type": "image/png",
       "purpose": "any"
-    },
-    {
-      "src": "vibepod-icon-v3-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "vibepod-icon-v3-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
     }
   ]
 }
