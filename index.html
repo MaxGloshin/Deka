@@ -1161,6 +1161,120 @@ function favView() {
   v.enter = () => snapTrackListToPlaying(v);
   return v;
 }
+/* ---------- lightweight backup: references only, never audio blobs ---------- */
+function backupPayload() {
+  return {
+    format: 'vibepod-backup', version: 1, createdAt: new Date().toISOString(),
+    folders: folders.map(f => ({ name: f.name, key: f.key })),
+    selectedKey: settings.key,
+    favorites: favAll,
+    downloadedReferences: savedEntries().map(f => ({
+      key: f.key, path: f.p, name: f.n, folder: f.f || '', mime: f.m || '',
+      size: f.s || 0, downloadedAt: f.at || 0
+    })),
+    appearance: { theme: themeMode, accent },
+    preferences: { clicks: settings.clicks, repeat: settings.repeat }
+  };
+}
+function exportBackup() {
+  try {
+    const json = JSON.stringify(backupPayload(), null, 2);
+    const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'VibePod-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) { alert('Не удалось создать резервную копию: ' + e.message); }
+}
+function importBackup() {
+  const input = document.createElement('input');
+  input.type = 'file'; input.accept = '.json,application/json';
+  input.style.display = 'none'; document.body.appendChild(input);
+  input.addEventListener('change', async () => {
+    try {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      if (file.size > 10 * 1024 * 1024) throw Error('Файл слишком большой');
+      const data = JSON.parse(await file.text());
+      if (!data || data.format !== 'vibepod-backup' || data.version !== 1 ||
+          !Array.isArray(data.folders) || !data.favorites ||
+          typeof data.favorites !== 'object' || Array.isArray(data.favorites) ||
+          !Array.isArray(data.downloadedReferences)) throw Error('Неверный формат копии');
+      const validFolders = data.folders.filter(f => f && typeof f.key === 'string' &&
+        f.key.length <= 4096 && typeof f.name === 'string' && f.name.length <= 120);
+      if (validFolders.length !== data.folders.length || validFolders.length > 1000)
+        throw Error('Некорректные папки');
+      const restoredFavs = {};
+      for (const [key, list] of Object.entries(data.favorites)) {
+        if (key.length > 4096 || !Array.isArray(list) || list.length > 50000)
+          throw Error('Некорректное избранное');
+        restoredFavs[key] = list.map(f => {
+          if (!f || typeof f.p !== 'string' || typeof f.n !== 'string' ||
+              f.p.length > 4096 || f.n.length > 1000) throw Error('Некорректный трек');
+          return { p: f.p, n: f.n, f: typeof f.f === 'string' ? f.f : '',
+            m: typeof f.m === 'string' ? f.m : '', s: Number(f.s) || 0,
+            at: Number(f.at) || 0 };
+        });
+      }
+      const refs = data.downloadedReferences.map(f => {
+        if (!f || typeof f.key !== 'string' || typeof f.path !== 'string' ||
+            typeof f.name !== 'string' || f.key.length > 4096 ||
+            f.path.length > 4096 || f.name.length > 1000) throw Error('Некорректная ссылка');
+        return f;
+      });
+      if (refs.length > 50000) throw Error('Слишком много треков');
+      if (!confirm('Восстановить ссылки, избранное и настройки? Существующие данные сохранятся. Музыку для офлайна потребуется скачать заново.')) return;
+      const known = new Set(folders.map(f => f.key));
+      for (const f of validFolders) if (!known.has(f.key)) {
+        folders.push({ name: f.name, key: f.key }); known.add(f.key);
+      }
+      for (const [key, list] of Object.entries(restoredFavs)) {
+        const existing = Array.isArray(favAll[key]) ? favAll[key] : [];
+        const seen = new Set(existing.map(f => f.p));
+        favAll[key] = existing.concat(list.filter(f => {
+          if (seen.has(f.p)) return false;
+          seen.add(f.p); return true;
+        }));
+      }
+      // Download references are restored as favorites, not as IndexedDB download
+      // records: marking absent audio as downloaded would break offline playback.
+      for (const f of refs) {
+        const list = favAll[f.key] || (favAll[f.key] = []);
+        if (!list.some(x => x.p === f.path))
+          list.push({ p: f.path, n: f.name, f: f.folder || '', m: f.mime || '',
+            s: Number(f.size) || 0, at: Number(f.downloadedAt) || 0 });
+      }
+      if (data.appearance) {
+        if (['system', 'light', 'dark'].includes(data.appearance.theme))
+          themeMode = data.appearance.theme;
+        if (Object.prototype.hasOwnProperty.call(ACCENTS, data.appearance.accent))
+          accent = data.appearance.accent;
+      }
+      if (data.preferences) {
+        if (typeof data.preferences.clicks === 'boolean') settings.clicks = data.preferences.clicks;
+        if (['all', 'one', 'off'].includes(data.preferences.repeat)) settings.repeat = data.preferences.repeat;
+      }
+      if (typeof data.selectedKey === 'string' && known.has(data.selectedKey))
+        settings.key = data.selectedKey;
+      store.set('favs', favAll); favVer++;
+      store.set('theme', themeMode); store.set('accent', accent);
+      store.set('clicks2', settings.clicks); store.set('repeat', settings.repeat);
+      persistFolders(); applyTheme();
+      stack = [mainView()]; render();
+      alert('Копия восстановлена. Ссылки ранее скачанных треков добавлены в избранное для повторного скачивания.');
+    } catch (e) { alert('Не удалось восстановить копию: ' + e.message); }
+    finally { input.remove(); }
+  });
+  input.click();
+}
+function backupView() {
+  return { kind: 'list', title: 'РЕЗЕРВНАЯ КОПИЯ', build: () => [
+    { label: 'Сохранить копию', hint: 'JSON', go: exportBackup },
+    { label: 'Восстановить копию', hint: '›', go: importBackup },
+    { label: 'Без аудиофайлов', hint: '', go: () => alert('Сохраняются ссылки, пути, избранное, тема и настройки. Для офлайн-прослушивания треки нужно скачать заново.') }
+  ] };
+}
 function settingsView() {
   const rep = { all: 'ВСЕ', one: 'ОДИН', off: 'ВЫКЛ' };
   return {
@@ -1172,6 +1286,7 @@ function settingsView() {
       { label: 'Щелчки колеса', hint: settings.clicks ? 'ВКЛ' : 'ВЫКЛ', go: () => { settings.clicks = !settings.clicks; store.set('clicks2', settings.clicks); render(); if (settings.clicks) { ensureAudioCtx(); tick(true); } } },
       { label: 'Повтор', hint: rep[settings.repeat], go: () => { settings.repeat = { all: 'one', one: 'off', off: 'all' }[settings.repeat]; store.set('repeat', settings.repeat); setAnn(); render(); } },
       { label: 'Папки на Диске', hint: String(folders.length), go: () => push(sourcesView()) },
+      { label: 'Резервная копия', hint: '›', go: () => push(backupView()) },
       { label: 'Способ загрузки', hint: MODES.includes(mode) ? MODE_NAMES[mode] : 'АВТО', go: () => { mode = null; store.set('mode', null); render(); } },
       { label: 'Память плеера', hint: savedStats().n + ' ТР · ' + savedStats().mb + ' МБ', go: () => push(savedView()) },
       { label: clearArm ? 'Удалить из всех папок?' : 'Очистить всю память', hint: '', go: () => {
